@@ -4,16 +4,16 @@
  * Renders every route of the real React app inside jsdom against a running
  * panel, so a broken page fails loudly instead of silently shipping.
  *
- *   1. npm run dev                 # panel on :6767
+ *   1. npm run dev                 # panel on :31120
  *   2. npm run qa:render           # renders all routes, exits non-zero on error
  *
- * Optional: QA_TOKEN=<jwt> QA_BASE=http://127.0.0.1:6767 npm run qa:render
+ * Optional: QA_TOKEN=<jwt> QA_BASE=http://127.0.0.1:31120 npm run qa:render
  * This file is a developer tool; it is not part of the production bundle.
  */
 import fs from "fs";
 import path from "path";
 
-const BASE = process.env.QA_BASE || "http://127.0.0.1:6767";
+const BASE = process.env.QA_BASE || "http://127.0.0.1:31120";
 const TOKEN = process.env.QA_TOKEN || "";
 const WIDTH = Number(process.env.QA_WIDTH || 1440);
 const ROUTES = (process.env.QA_ROUTES ||

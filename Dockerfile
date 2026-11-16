@@ -19,7 +19,7 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production \
-    PORT=6767 \
+    PORT=31120 \
     JAVA_BIN=java
 
 # OpenJDK 21 is what modern Minecraft (1.20.5+) requires; 17 is kept for older jars.
@@ -45,7 +45,7 @@ RUN mkdir -p /app/.data && chown -R node:node /app
 VOLUME ["/app/.data"]
 USER node
 
-EXPOSE 6767
+EXPOSE 31120
 # Minecraft server port range used by the built-in allocator (26000-26999).
 EXPOSE 26000-26999
 

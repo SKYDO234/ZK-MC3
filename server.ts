@@ -25,7 +25,7 @@ const io: import("socket.io").Server = new SocketServer(httpServer, {
 });
 app.set("io", io);
 
-const PORT = Number(process.env.PORT) || 6767;
+const PORT = Number(process.env.PORT) || 31120;
 const isDev = process.env.NODE_ENV === "development";
 
 app.use(cors());

@@ -6,7 +6,7 @@ and reports host telemetry back to the panel.
 ## Start the agent
 
 ```bash
-PORT=6767 \
+PORT=31120 \
 ZK_AGENT_NAME="Node EU-1" \
 ZK_AGENT_PUBLIC_IP="203.0.113.10" \
 ZK_PANEL_TOKEN="$(openssl rand -hex 24)" \
@@ -30,7 +30,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/zk-mc3
-Environment=PORT=6767
+Environment=PORT=31120
 Environment=ZK_PANEL_TOKEN=replace-me
 ExecStart=/usr/bin/node agent/agent.js
 Restart=always

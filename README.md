@@ -72,7 +72,7 @@ sudo bash install.sh restart
 sudo bash install.sh status
 ```
 
-After installation the panel listens on **http://your-server-ip:6767**.
+After installation the panel listens on **http://your-server-ip:31120**.
 
 > **Default login** — `admin` / the password printed by the installer
 > (or `admin12345` when no `.env` existed). **Change it immediately** in
@@ -85,14 +85,14 @@ git clone https://github.com/SKYDO234/ZK-MC3.git
 cd ZK-MC3
 cp .env.example .env          # set JWT_SECRET
 npm install
-npm run dev                   # http://localhost:6767 (Vite + API)
+npm run dev                   # http://localhost:31120 (Vite + API)
 ```
 
 Production build:
 
 ```bash
 npm run build                 # vite build + bundled server -> dist/
-npm start                     # serves dist/ + API on PORT (default 6767)
+npm start                     # serves dist/ + API on PORT (default 31120)
 ```
 
 ### Docker
@@ -287,7 +287,7 @@ GET    /api/admin/export               JSON snapshot (admin)
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PORT` | `6767` | HTTP port |
+| `PORT` | `31120` | HTTP port |
 | `NODE_ENV` | `production` | Set to `development` for Vite HMR |
 | `JWT_SECRET` | generated | Session signing secret — **set this** |
 | `OWNER_USERNAME` | `admin` | First-run owner username |
@@ -302,12 +302,12 @@ GET    /api/admin/export               JSON snapshot (admin)
 
 ```bash
 # 1. Create a Node.js app server (no Java needed)
-curl -X POST http://localhost:6767/api/servers \
+curl -X POST http://localhost:31120/api/servers \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"Demo App","software":"NODEJS","version":"22","ram":512,"port":26001}'
 
 # 2. Start it
-curl -X POST http://localhost:6767/api/servers/<id>/start -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:31120/api/servers/<id>/start -H "Authorization: Bearer $TOKEN"
 
 # 3. Confirm it is live
 curl http://localhost:26001

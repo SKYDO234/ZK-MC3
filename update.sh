@@ -56,7 +56,7 @@ else
 fi
 
 PORT="$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '"'"'"' ' || true)"
-PORT="${PORT:-6767}"
+PORT="${PORT:-31120}"
 sleep 3
 if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
   ok "panel healthy on http://127.0.0.1:${PORT}"

@@ -5,7 +5,7 @@
  * A tiny zero-dependency HTTP agent that runs on a remote node and exposes
  * host health, allocation information and process status to the panel.
  *
- *   ZK_PANEL_TOKEN=secret PORT=6767 node agent/agent.js
+ *   ZK_PANEL_TOKEN=secret PORT=31120 node agent/agent.js
  *
  * Endpoints
  *   GET  /health   -> { status, system, processes, panel }
@@ -21,7 +21,7 @@ const os = require("os");
 const fs = require("fs");
 const { exec } = require("child_process");
 
-const PORT = Number(process.env.PORT || process.env.ZK_AGENT_PORT || 6767);
+const PORT = Number(process.env.PORT || process.env.ZK_AGENT_PORT || 31120);
 const TOKEN = process.env.ZK_PANEL_TOKEN || process.env.ZK_AGENT_TOKEN || "";
 const HOST = process.env.ZK_AGENT_HOST || "0.0.0.0";
 const PUBLIC_IP = process.env.ZK_AGENT_PUBLIC_IP || "";
