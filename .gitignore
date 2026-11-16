@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.data/
+backups/
+*.log
+crash.log
+.env
+.env.local
+.DS_Store
+.arena/
+npm-debug.log*
+qa-entry.tsx
+qa-bundle.js
