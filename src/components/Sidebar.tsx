@@ -11,6 +11,7 @@ import {
   Boxes,
   Users,
   Settings2,
+  Cpu,
   LogOut,
   ChevronRight,
   Sparkles,
@@ -45,6 +46,7 @@ const ADMIN_NAV: NavItem[] = [
   { to: "/admin/users", label: "User Management", icon: <Users size={17} /> },
   { to: "/admin/api-keys", label: "API Keys", icon: <KeyRound size={17} /> },
   { to: "/admin/settings", label: "Panel Settings", icon: <Settings2 size={17} /> },
+  { to: "/admin/system", label: "System", icon: <Cpu size={17} /> },
 ];
 
 export const Sidebar: React.FC<{

@@ -14,6 +14,9 @@ import { notify } from "../services/notifications";
 import { systemSnapshot } from "../services/proc";
 import { softwareHealth } from "../services/health";
 import { readJSON, writeJSON, UPLOADS_DIR } from "../services/db";
+import { stopServer, clearConsoleLog } from "../services/runtime";
+import { createBackupZip } from "../services/backups";
+import { panelLogs } from "../services/panellog";
 
 const router = Router();
 const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 8 * 1024 * 1024 } });
@@ -140,6 +143,10 @@ router.get("/export", requireAdmin, async (_req, res) => {
   });
 });
 
+/**
+ * Platform maintenance actions surfaced in the admin panel's system tools.
+ * These are the operations a host operator actually needs during an incident.
+ */
 router.post("/maintenance", requireAdmin, async (req: any, res) => {
   const enabled = Boolean(req.body?.enabled);
   await saveSettings({ maintenanceMode: enabled });
@@ -153,6 +160,124 @@ router.post("/maintenance", requireAdmin, async (req: any, res) => {
     ip: clientIp(req),
   });
   res.json({ success: true, maintenanceMode: enabled });
+});
+
+router.post("/system/action", requireAdmin, async (req: any, res) => {
+  const action = String(req.body?.action || "");
+  const actor = req.user.username || "admin";
+  try {
+    if (action === "backup-all") {
+      const servers = await listServers();
+      const results: { id: string; name: string; ok: boolean; fileName?: string; error?: string }[] = [];
+      for (const server of servers) {
+        try {
+          const backup = await createBackupZip(server, "scheduled");
+          results.push({ id: server.id, name: server.name, ok: true, fileName: backup.fileName });
+        } catch (err: any) {
+          results.push({ id: server.id, name: server.name, ok: false, error: err.message });
+        }
+      }
+      await logActivity({
+        type: "admin",
+        action: "backup-all",
+        message: `${actor} backed up ${results.filter((r) => r.ok).length}/${results.length} servers`,
+        actorId: req.user.id,
+        actorName: actor,
+        target: "panel",
+        ip: clientIp(req),
+      });
+      return res.json({ success: true, action, results });
+    }
+
+    if (action === "restart-panel") {
+      await logActivity({
+        type: "admin",
+        action: "restart",
+        message: `${actor} restarted the panel service`,
+        actorId: req.user.id,
+        actorName: actor,
+        target: "panel",
+        ip: clientIp(req),
+      });
+      res.json({ success: true, action, message: "Panel is restarting. Reconnect in a few seconds." });
+      // Give the response time to flush, then let the process manager respawn us.
+      setTimeout(() => process.exit(0), 600);
+      return;
+    }
+
+    if (action === "clear-logs") {
+      const servers = await listServers();
+      let cleared = 0;
+      for (const server of servers) {
+        await clearConsoleLog(server.id).catch(() => {});
+        cleared += 1;
+      }
+      await logActivity({
+        type: "admin",
+        action: "clear-logs",
+        message: `${actor} cleared console logs for ${cleared} servers`,
+        actorId: req.user.id,
+        actorName: actor,
+        target: "panel",
+        ip: clientIp(req),
+      });
+      return res.json({ success: true, action, cleared });
+    }
+
+    if (action === "clear-cache") {
+      await fs.emptyDir(UPLOADS_DIR);
+      await logActivity({
+        type: "admin",
+        action: "clear-cache",
+        message: `${actor} purged the upload cache`,
+        actorId: req.user.id,
+        actorName: actor,
+        target: "panel",
+        ip: clientIp(req),
+      });
+      return res.json({ success: true, action });
+    }
+
+    if (action === "stop-all") {
+      const servers = await listServers();
+      let stopped = 0;
+      for (const server of servers) {
+        try {
+          await stopServer(server.id);
+          stopped += 1;
+        } catch {
+          /* already offline */
+        }
+      }
+      await logActivity({
+        type: "admin",
+        action: "stop-all",
+        message: `${actor} stopped ${stopped} running servers`,
+        actorId: req.user.id,
+        actorName: actor,
+        target: "panel",
+        ip: clientIp(req),
+      });
+      return res.json({ success: true, action, stopped });
+    }
+
+    return res.status(400).json({ error: `Unknown system action "${action}"` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "System action failed" });
+  }
+});
+
+/** Live platform log feed for the admin console (panel process output). */
+router.get("/system/logs", requireAdmin, async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 200, 500);
+  const logFile = path.join(process.cwd(), "crash.log");
+  const lines = panelLogs(limit);
+  res.json({
+    lines,
+    crashLog: (await fs.pathExists(logFile)) ? await fs.readFile(logFile, "utf8") : null,
+    pid: process.pid,
+    uptime: process.uptime(),
+  });
 });
 
 export default router;

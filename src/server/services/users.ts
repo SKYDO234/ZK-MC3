@@ -19,6 +19,8 @@ export interface User {
   lastLogin: string | null;
   lastIp: string | null;
   passwordVersion: number;
+  /** Set when the account still uses a seeded/default password. */
+  mustChangePassword?: boolean;
   twoFactor: boolean;
   preferences: {
     theme: string;
@@ -67,6 +69,7 @@ export const publicUser = (u: User) => ({
   updatedAt: u.updatedAt,
   lastLogin: u.lastLogin,
   lastIp: u.lastIp,
+  mustChangePassword: Boolean(u.mustChangePassword),
   twoFactor: !!u.twoFactor,
   preferences: u.preferences,
 });
@@ -78,6 +81,7 @@ export const createUserRecord = async (input: {
   password: string;
   role?: Role;
   balance?: number;
+  mustChangePassword?: boolean;
 }): Promise<User> => {
   const users = await listUsers();
   const user: User = {
@@ -96,6 +100,7 @@ export const createUserRecord = async (input: {
     lastLogin: null,
     lastIp: null,
     passwordVersion: 0,
+    mustChangePassword: Boolean(input.mustChangePassword),
     twoFactor: false,
     preferences: {
       theme: "dark",

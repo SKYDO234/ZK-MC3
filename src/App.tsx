@@ -7,6 +7,7 @@ import { AppLayout } from "./components/AppLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { RegisterPage } from "./pages/auth/RegisterPage";
 import { ForgotPasswordPage } from "./pages/auth/ForgotPasswordPage";
+import { ChangePasswordPage } from "./pages/auth/ChangePasswordPage";
 import { UserDashboard } from "./pages/user/UserDashboard";
 import { ServerList } from "./pages/user/ServerList";
 import { ServerView } from "./pages/user/ServerView";
@@ -19,6 +20,7 @@ import { NodesPage } from "./pages/admin/NodesPage";
 import { UserManagement } from "./pages/admin/UserManagement";
 import { AdminApiKeys } from "./pages/admin/AdminApiKeys";
 import { PanelSettings } from "./pages/admin/PanelSettings";
+import { SystemPage } from "./pages/admin/SystemPage";
 import { Loader2, ShieldAlert, ServerCrash } from "lucide-react";
 
 const FullScreenLoader: React.FC = () => (
@@ -41,6 +43,20 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  return <>{children}</>;
+};
+
+/**
+ * Blocks the whole app while the account still holds a seeded credential.
+ * Without this, a default "admin/admin" install stays exposed forever.
+ */
+const RequirePasswordChange: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { mustChangePassword, loading } = useAuth();
+  const location = useLocation();
+  if (loading) return <FullScreenLoader />;
+  if (mustChangePassword && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
+  }
   return <>{children}</>;
 };
 
@@ -82,12 +98,22 @@ export const AppRoutes: React.FC = () => (
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+    <Route
+      path="/change-password"
+      element={
+        <RequireAuth>
+          <ChangePasswordPage />
+        </RequireAuth>
+      }
+    />
     <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
     <Route
       element={
         <RequireAuth>
-          <AppLayout />
+          <RequirePasswordChange>
+            <AppLayout />
+          </RequirePasswordChange>
         </RequireAuth>
       }
     >
@@ -150,6 +176,14 @@ export const AppRoutes: React.FC = () => (
         element={
           <RequireAdmin>
             <PanelSettings />
+          </RequireAdmin>
+        }
+      />
+      <Route
+        path="/admin/system"
+        element={
+          <RequireAdmin>
+            <SystemPage />
           </RequireAdmin>
         }
       />

@@ -551,3 +551,34 @@ body {
     font-size: 0.72rem;
   }
 }
+
+/* JTG-style console ------------------------------------------------------ */
+.zk-terminal {
+  font-family: var(--font-mono);
+  background:
+    radial-gradient(700px 260px at 100% 0%, rgba(255, 122, 24, 0.05), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 22%),
+    #07070a;
+  color: #cfd3dc;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  tab-size: 2;
+}
+.zk-terminal::selection,
+.zk-terminal ::selection {
+  background: rgba(255, 122, 24, 0.3);
+  color: #fff;
+}
+.zk-terminal::-webkit-scrollbar {
+  width: 9px;
+}
+.zk-terminal::-webkit-scrollbar-thumb {
+  background: #23232b;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.zk-terminal::-webkit-scrollbar-thumb:hover {
+  background: #353540;
+  background-clip: content-box;
+}

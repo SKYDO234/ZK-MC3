@@ -15,6 +15,9 @@ import { recoverRunningProcesses, findServer } from "./src/server/services/runti
 import { isAdminRole, listUsers, createUserRecord } from "./src/server/services/users";
 import { listServers, saveServers } from "./src/server/services/runtime";
 import { seedDemoData } from "./src/server/services/seed";
+import { installLogCapture } from "./src/server/services/panellog";
+
+installLogCapture();
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -150,8 +153,10 @@ const bootstrapOwner = async () => {
     email: process.env.OWNER_EMAIL || "owner@zk-mc3.local",
     password,
     role: "owner",
+    // A seeded credential is public knowledge, so force a rotation on first use.
+    mustChangePassword: password === "admin" && username === "admin",
   });
-  console.log(`[ZK-MC3] Bootstrapped owner account "${username}" — change the password after signing in.`);
+  console.log(`[ZK-MC3] Bootstrapped owner account "${username}" — the panel will ask for a new password on first sign-in.`);
   void settings;
 };
 
