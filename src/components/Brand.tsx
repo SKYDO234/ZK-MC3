@@ -14,7 +14,7 @@ export const BrandMark: React.FC<{ size?: number; className?: string }> = ({ siz
       style={{ width: size, height: size }}
     >
       <img
-        src={settings.logoUrl || "/logo.png"}
+        src={settings.logoUrl || "/logo-icon.png"}
         alt={`${settings.panelName} logo`}
         className="h-full w-full object-cover"
         onError={(e) => {
@@ -62,7 +62,7 @@ export const BrandHero: React.FC<{ className?: string }> = ({ className }) => {
       <div className="relative">
         <div className="absolute inset-0 -z-10 rounded-3xl bg-brand-500/25 blur-3xl" />
         <img
-          src={settings.logoUrl || "/logo.png"}
+          src={settings.logoUrl || "/logo-icon.png"}
           alt={`${settings.panelName} logo`}
           className="h-24 w-24 rounded-2xl border border-brand-500/30 object-cover shadow-[0_24px_60px_-24px_rgba(255,122,24,0.8)]"
         />
