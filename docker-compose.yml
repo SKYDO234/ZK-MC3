@@ -1,0 +1,51 @@
+# ---------- ZK-MC3-PANEL | docker compose ----------
+# Usage:
+#   cp .env.example .env    # then edit JWT_SECRET / OWNER_PASSWORD
+#   docker compose up -d --build
+#   open http://localhost:6767
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zk-mc3-panel:latest
+    container_name: zk-mc3-panel
+    restart: unless-stopped
+    ports:
+      - "6767:6767"          # panel UI + API
+      - "26000-26050:26000-26050"   # Minecraft server port range
+    environment:
+      NODE_ENV: production
+      PORT: "6767"
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      OWNER_USERNAME: ${OWNER_USERNAME:-admin}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:-admin12345}
+      OWNER_EMAIL: ${OWNER_EMAIL:-admin@zk-mc3.local}
+      JAVA_BIN: ${JAVA_BIN:-java}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    volumes:
+      - zk-mc3-data:/app/.data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:6767/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # Optional: run the node agent on a second host and register it in the panel.
+  # agent:
+  #   image: node:22-bookworm-slim
+  #   container_name: zk-mc3-agent
+  #   working_dir: /app
+  #   command: ["node", "agent/agent.js"]
+  #   volumes:
+  #     - ./agent:/app/agent:ro
+  #   ports:
+  #     - "6767:6767"
+  #   environment:
+  #     PORT: "6767"
+  #     ZK_PANEL_TOKEN: ${ZK_PANEL_TOKEN:-}
+
+volumes:
+  zk-mc3-data:
