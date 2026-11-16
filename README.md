@@ -74,9 +74,10 @@ sudo bash install.sh status
 
 After installation the panel listens on **http://your-server-ip:31120**.
 
-> **Default login** — `admin` / the password printed by the installer
-> (or `admin12345` when no `.env` existed). **Change it immediately** in
-> *Account → Password*.
+> **Default login** — username `admin`, password `admin`. **Change it immediately**
+> in *Account → Password*; it is a well-known default, so treat the panel as
+> publicly open until you do. Set `OWNER_PASSWORD` in `.env` before the first boot
+> if you want a different starting password.
 
 ### Manual install (development)
 
@@ -291,7 +292,7 @@ GET    /api/admin/export               JSON snapshot (admin)
 | `NODE_ENV` | `production` | Set to `development` for Vite HMR |
 | `JWT_SECRET` | generated | Session signing secret — **set this** |
 | `OWNER_USERNAME` | `admin` | First-run owner username |
-| `OWNER_PASSWORD` | `admin12345` | First-run owner password |
+| `OWNER_PASSWORD` | `admin` | First-run owner password (change after signing in) |
 | `OWNER_EMAIL` | `owner@zk-mc3.local` | First-run owner email |
 | `JAVA_BIN` | auto-detected | Explicit path to a `java` binary |
 | `SEED_DEMO` | `true` | Seed demo users/servers on first boot (`false` for clean) |

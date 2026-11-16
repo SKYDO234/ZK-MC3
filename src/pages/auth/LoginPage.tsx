@@ -46,7 +46,7 @@ export const LoginPage: React.FC = () => {
   const fillDemo = (who: "owner" | "client") => {
     setForm({
       login: who === "owner" ? "admin" : "demo",
-      password: who === "owner" ? "admin12345" : "demo12345",
+      password: who === "owner" ? "admin" : "demo12345",
       remember: true,
     });
     setError("");
@@ -162,7 +162,7 @@ export const LoginPage: React.FC = () => {
             </button>
           </div>
           <p className="mt-2 text-[0.64rem] leading-relaxed text-zinc-600">
-            Default seed password is <span className="font-mono text-zinc-500">admin12345</span> — change it
+            Default seed password is <span className="font-mono text-zinc-500">admin</span> — change it
             from Account settings after your first sign-in.
           </p>
         </div>

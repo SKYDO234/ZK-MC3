@@ -37,7 +37,7 @@ const FALLBACK: PublicSettings = {
   enableRegistration: true,
   allowRememberMe: true,
   showDemoCredentials: true,
-  passwordMinLength: 8,
+  passwordMinLength: 5,
   maintenanceMode: false,
   maintenanceMessage: "",
   billingEnabled: true,

@@ -36,8 +36,10 @@ const main = async () => {
     console.error("Username, email and password are required.");
     process.exit(1);
   }
-  if (password.length < 8) {
-    console.error("Password must be at least 8 characters.");
+  // Password strength is a per-panel setting; only guard against an empty value here
+  // so operators can reset to any password the panel itself would accept.
+  if (!password.trim()) {
+    console.error("Password cannot be empty.");
     process.exit(1);
   }
 

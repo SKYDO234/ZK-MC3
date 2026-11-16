@@ -264,7 +264,7 @@ export const PanelSettings: React.FC = () => {
                 <Field label="Minimum password length" hint="Applies to new registrations and password resets">
                   <input
                     type="number"
-                    min={6}
+                    min={4}
                     max={32}
                     className="zk-input"
                     value={form.passwordMinLength}

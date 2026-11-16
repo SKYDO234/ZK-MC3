@@ -143,7 +143,7 @@ const bootstrapOwner = async () => {
   if (users.length > 0) return;
   const settings = await getSettings();
   const username = process.env.OWNER_USERNAME || "admin";
-  const password = process.env.OWNER_PASSWORD || "admin12345";
+  const password = process.env.OWNER_PASSWORD || "admin";
   await createUserRecord({
     name: "Panel Owner",
     username,

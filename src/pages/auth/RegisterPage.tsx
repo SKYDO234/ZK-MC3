@@ -7,12 +7,17 @@ import { useSettings } from "../../context/SettingsContext";
 import { useToast } from "../../context/ToastContext";
 import { ApiError } from "../../lib/api";
 
-const requirements = (password: string, min: number) => [
-  { label: `At least ${min} characters`, ok: password.length >= min },
-  { label: "Contains a letter", ok: /[A-Za-z]/.test(password) },
-  { label: "Contains a number", ok: /[0-9]/.test(password) },
-  { label: "Contains a symbol (optional)", ok: /[^A-Za-z0-9]/.test(password), optional: true },
-];
+// Mirrors the server-side policy: length is mandatory, letter/number complexity
+// only kicks in once the password is longer than the configured minimum.
+const requirements = (password: string, min: number) => {
+  const aboveMinimum = password.length > Math.max(min, 5);
+  return [
+    { label: `At least ${min} characters`, ok: password.length >= min },
+    { label: "Contains a letter", ok: !aboveMinimum || /[A-Za-z]/.test(password), optional: !aboveMinimum },
+    { label: "Contains a number", ok: !aboveMinimum || /[0-9]/.test(password), optional: !aboveMinimum },
+    { label: "Contains a symbol (optional)", ok: /[^A-Za-z0-9]/.test(password), optional: true },
+  ];
+};
 
 export const RegisterPage: React.FC = () => {
   const { register, user } = useAuth();

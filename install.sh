@@ -218,8 +218,9 @@ configure_env() {
     ok ".env already exists — keeping current secrets"
   else
     JWT_SECRET=$(openssl rand -hex 48 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -d '\n/+=' )
-    OWNER_PASS=$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 14)
-    [ -z "$OWNER_PASS" ] && OWNER_PASS="admin12345"
+    # Predictable first-run login so the panel is reachable straight after install.
+    # Override with OWNER_PASS=... before running the installer (or edit .env).
+    OWNER_PASS="${OWNER_PASS:-admin}"
 
     cat > .env <<EOF
 # ---------------------------------------------------------------
@@ -245,6 +246,7 @@ EOF
     chmod 600 .env
     ok ".env generated with a random JWT secret"
     say "    ${DIM}Owner account: ${WHITE}admin${NC}${DIM} / ${WHITE}${OWNER_PASS}${NC}"
+    say "    ${YELLOW}⚠ Change this password now — it is the documented default.${NC}"
   fi
 
   mkdir -p .data backups public/uploads logs

@@ -80,9 +80,13 @@ export const clearAttempts = (key: string) => attempts.delete(key);
 export const passwordIssues = async (password: string) => {
   const settings = await getSettings();
   const issues: string[] = [];
-  if (!password || password.length < settings.passwordMinLength)
+  const value = password || "";
+  if (!value || value.length < settings.passwordMinLength)
     issues.push(`Password must be at least ${settings.passwordMinLength} characters long.`);
-  if (!/[A-Za-z]/.test(password || "")) issues.push("Password must include at least one letter.");
-  if (!/[0-9]/.test(password || "")) issues.push("Password must include at least one number.");
+  // Complexity rules only apply above the minimum length, so the documented
+  // first-run credential ("admin") stays valid while real passwords stay strong.
+  const aboveMinimum = value.length > Math.max(settings.passwordMinLength, 5);
+  if (aboveMinimum && !/[A-Za-z]/.test(value)) issues.push("Password must include at least one letter.");
+  if (aboveMinimum && !/[0-9]/.test(value)) issues.push("Password must include at least one number.");
   return issues;
 };
