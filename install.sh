@@ -162,7 +162,7 @@ install_java() {
   if command -v java >/dev/null 2>&1; then
     ok "Java installed: $(java -version 2>&1 | head -1 | tr -d '"')"
   else
-    warn "Java not found. Minecraft servers will require a JDK (install later with 'apt install openjdk-21-jre-headless')."
+    warn "Java not found. Minecraft servers will use the panel's emulated console until you install a JDK ('apt install openjdk-21-jre-headless')."
   fi
 }
 

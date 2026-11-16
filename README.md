@@ -74,10 +74,12 @@ sudo bash install.sh status
 
 After installation the panel listens on **http://your-server-ip:31120**.
 
-> **Default login** — username `admin`, password `admin`. **Change it immediately**
-> in *Account → Password*; it is a well-known default, so treat the panel as
-> publicly open until you do. Set `OWNER_PASSWORD` in `.env` before the first boot
-> if you want a different starting password.
+> **Default login** — username `admin`, password `admin`.
+>
+> Because that credential is public, a fresh install **forces a password change on
+> first sign-in**: the panel routes you to *Secure your panel* and will not load any
+> other screen until the default has been replaced. Set `OWNER_PASSWORD` in `.env`
+> before the first boot to skip the prompt entirely.
 
 ### Manual install (development)
 
@@ -142,7 +144,7 @@ QA_TOKEN="$TOKEN" npm run qa:render
 | --- | --- |
 | **Authentication** | Login · Register · Forgot password |
 | **User panel** | Dashboard · My Servers · Server detail (Console, Files, Plugins, Backups, Settings) · API Keys · Account |
-| **Admin panel** | Admin Overview · Create Server · All Servers · Nodes · User Management · API Keys · Panel Settings |
+| **Admin panel** | Admin Overview · Create Server · All Servers · Nodes · User Management · API Keys · Panel Settings · System (platform console, maintenance) |
 
 Every page is responsive, keyboard-friendly and animated with subtle, GPU-friendly
 transitions. The whole interface uses a single, consistent design system
@@ -157,10 +159,18 @@ transitions. The whole interface uses a single, consistent design system
   own working directory, port and memory limit (`-Xms/-Xmx`).
 - **One-click install** of Paper, Purpur, Vanilla, Spigot, Fabric, Velocity,
   BungeeCord, Waterfall, plus Node.js and Python app runtimes.
-- **Live console** over WebSocket with command history (`↑`/`↓`), colourised
-  output, export and clear.
-- **Power controls** — start, stop (graceful `stop`/`end`), restart, force kill.
-- **Live metrics** — CPU %, RSS memory, disk usage and uptime polled per server.
+- **Live console** over WebSocket — line-numbered terminal, output filtering,
+  copy/download, command history (`↑`/`↓`), `Ctrl`+`L` to clear and sticky
+  auto-scroll that pauses when you scroll up.
+- **Power controls** — start, stop (graceful `stop`/`end`), restart, force kill,
+  all reachable from the console header.
+- **Live metrics** — CPU %, RSS memory, disk, uptime, **inbound/outbound
+  throughput** (read from the kernel's per-socket counters) and sparkline charts.
+- **Port guard** — a start that finds its port held by a stale process reclaims
+  the socket instead of failing with `EADDRINUSE`.
+- **Emulated console without a JDK** — on a node with no Java the panel runs a
+  simulated Paper boot/stop sequence and answers console commands, binding the
+  real game port, so the panel is fully usable before you install OpenJDK.
 - **Auto-restart** on unexpected crashes.
 - **Reinstall** rebuilds the jar without touching worlds or configuration.
 
@@ -176,9 +186,11 @@ transitions. The whole interface uses a single, consistent design system
 - Backup writes are streamed to disk — no memory spikes on large worlds.
 
 ### Plugins & mods
-- Browse **Modrinth** from inside the panel.
+- Browse **Modrinth** from inside the panel — searches and downloads are proxied
+  through the server, so a restricted browser network still works.
 - Filters results to builds matching the server software **and** exact version.
 - Installs jars straight into `/plugins` or `/mods`.
+- Falls back to a curated offline catalog when the catalog API is unreachable.
 
 ### Users & access control
 - Four-tier roles: **owner**, **admin**, **user** and per-server access checks.
@@ -275,10 +287,17 @@ POST   /api/servers/:id/files/save      Save file contents
 POST   /api/servers/:id/backups         Create backup
 POST   /api/servers/:id/plugins/install  Install plugin/mod
 
+GET    /api/servers/:id/plugins/catalog   Plugin/mod search (proxied)
+GET    /api/servers/:id/plugins/versions  Compatible builds for a project
+
 GET    /api/nodes                      Node inventory (admin)
 POST   /api/nodes                      Register node (admin)
 GET    /api/admin/dashboard            Platform metrics (admin)
+GET    /api/admin/health               Host + software inventory (admin)
 PUT    /api/admin/settings             Update settings (admin)
+GET    /api/admin/system/logs          Captured panel output (admin)
+POST   /api/admin/system/action        backup-all|stop-all|clear-cache|
+                                       clear-logs|restart-panel (admin)
 GET    /api/admin/export               JSON snapshot (admin)
 ```
 

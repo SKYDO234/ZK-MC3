@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./src/server/services/panellog-install";
 import { Server as SocketServer } from "socket.io";
 import express from "express";
 import path from "path";
@@ -15,10 +16,6 @@ import { recoverRunningProcesses, findServer } from "./src/server/services/runti
 import { isAdminRole, listUsers, createUserRecord } from "./src/server/services/users";
 import { listServers, saveServers } from "./src/server/services/runtime";
 import { seedDemoData } from "./src/server/services/seed";
-import { installLogCapture } from "./src/server/services/panellog";
-
-installLogCapture();
-
 const app = express();
 const httpServer = http.createServer(app);
 

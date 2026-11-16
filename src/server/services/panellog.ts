@@ -7,7 +7,7 @@ const buffer: string[] = [];
 
 export const panelLogBuffer = buffer;
 
-const capture = (level: "info" | "warn" | "error", args: any[]) => {
+const capture = (level: "log" | "info" | "warn" | "error", args: any[]) => {
   const text = args
     .map((arg) => {
       if (arg instanceof Error) return arg.stack || arg.message;
@@ -21,13 +21,13 @@ const capture = (level: "info" | "warn" | "error", args: any[]) => {
     .join(" ");
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
-    buffer.push(`${new Date().toISOString()} [${level}] ${line}`);
+    buffer.push(`${new Date().toISOString()} [${level === "log" ? "info" : level}] ${line}`);
     if (buffer.length > MAX_LINES) buffer.splice(0, buffer.length - MAX_LINES);
   }
 };
 
 export const installLogCapture = () => {
-  for (const level of ["info", "warn", "error"] as const) {
+  for (const level of ["log", "info", "warn", "error"] as const) {
     const original = console[level].bind(console);
     console[level] = (...args: any[]) => {
       capture(level, args);
