@@ -150,10 +150,11 @@ const bootstrapOwner = async () => {
     email: process.env.OWNER_EMAIL || "owner@zk-mc3.local",
     password,
     role: "owner",
-    // A seeded credential is public knowledge, so force a rotation on first use.
+    // Seeded credentials are flagged, but rotation is only *forced* when the
+    // operator turns on "require initial password change" in Panel Settings.
     mustChangePassword: password === "admin" && username === "admin",
   });
-  console.log(`[ZK-MC3] Bootstrapped owner account "${username}" — the panel will ask for a new password on first sign-in.`);
+  console.log(`[ZK-MC3] Bootstrapped owner account "${username}" — sign in with ${username} / ${password} and change it in Account → Password.`);
   void settings;
 };
 

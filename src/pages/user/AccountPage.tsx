@@ -22,13 +22,16 @@ import { Card, CardHeader, Button, Badge, Field, Tabs, Switch, PageSkeleton } fr
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { useApi, useDocumentTitle } from "../../lib/hooks";
+import { useSettings } from "../../context/SettingsContext";
 import { api } from "../../lib/api";
 import { formatDateTime, initials, relativeTime } from "../../lib/format";
 
 export const AccountPage: React.FC = () => {
   useDocumentTitle("Account · ZK-MC3-PANEL");
-  const { user, refresh, updateUser } = useAuth();
+  const { user, refresh, updateUser, adoptToken } = useAuth();
   const { success, error, confirm } = useToast();
+  const { settings } = useSettings();
+  const minPasswordLength = settings?.passwordMinLength || 5;
   const [tab, setTab] = useState("profile");
 
   const [profile, setProfile] = useState({ name: "", email: "", avatar: "" });
@@ -70,17 +73,21 @@ export const AccountPage: React.FC = () => {
   };
 
   const updatePassword = async () => {
+    if (!passwords.currentPassword) return error("Current password required", "Enter the password you are signed in with.");
     if (passwords.newPassword !== passwords.confirm) return error("Passwords do not match");
-    if (passwords.newPassword.length < 8) return error("Password too short", "Use at least 8 characters.");
+    if (passwords.newPassword.length < minPasswordLength)
+      return error("Password too short", `Use at least ${minPasswordLength} characters.`);
     setSaving("password");
     try {
       const result = await api<{ token: string }>("/auth/password", {
         method: "PATCH",
         body: { currentPassword: passwords.currentPassword, newPassword: passwords.newPassword },
       });
-      if (result.token) localStorage.setItem("zk_mc3_token", result.token);
+      // Changing the password invalidates the old token, so keep the new one and
+      // refresh the session state — otherwise the next request signs us out.
+      await adoptToken(result.token);
       setPasswords({ currentPassword: "", newPassword: "", confirm: "" });
-      success("Password updated", "All other sessions were invalidated.");
+      success("Password updated", "All other devices were signed out.");
     } catch (err: any) {
       error("Password change failed", err.message);
     } finally {
@@ -208,7 +215,7 @@ export const AccountPage: React.FC = () => {
                     onChange={(e) => setPasswords((p) => ({ ...p, currentPassword: e.target.value }))}
                   />
                 </Field>
-                <Field label="New password" required hint="Minimum 8 characters with letters and numbers">
+                <Field label="New password" required hint={`At least ${minPasswordLength} characters; longer passwords also need a letter and a number`}>
                   <input
                     className="zk-input"
                     type="password"

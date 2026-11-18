@@ -20,7 +20,7 @@ const STRENGTH_LABEL = ["Too short", "Weak", "Fair", "Good", "Strong"];
 const STRENGTH_COLOR = ["bg-red-500", "bg-red-500", "bg-amber-500", "bg-sky-500", "bg-emerald-500"];
 
 export const ChangePasswordPage: React.FC = () => {
-  const { user, login, clearPasswordFlag, refresh } = useAuth();
+  const { user, adoptToken } = useAuth();
   const { settings } = useSettings();
   const { success, error } = useToast();
   const navigate = useNavigate();
@@ -49,15 +49,17 @@ export const ChangePasswordPage: React.FC = () => {
     }
     setSaving(true);
     try {
-      await api("/auth/password", { method: "PATCH", body: { currentPassword: current, newPassword: next } });
-      clearPasswordFlag();
-      await refresh();
+      const result = await api<{ token: string }>("/auth/password", {
+        method: "PATCH",
+        body: { currentPassword: current, newPassword: next },
+      });
+      // The old token is invalid the moment the password changes; adopt the new
+      // one before navigating, or the dashboard request 401s and bounces to /login.
+      await adoptToken(result.token);
       success("Password updated", "Your panel is now secured with your own credential.");
       navigate("/dashboard", { replace: true });
     } catch (err: any) {
       error("Could not update the password", err.message);
-      // A wrong "current password" is the most common failure; re-verify the session.
-      if (/current password/i.test(err.message || "")) void login(user?.username || "", current).catch(() => {});
     } finally {
       setSaving(false);
     }

@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "check:shell": "bash scripts/check-shell.sh",
     "clean": "rm -rf dist",
-    "qa:render": "npm run build && node qa-render.mjs"
+    "qa:render": "npm run build && node qa-render.mjs",
+    "qa:password": "node qa-password.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

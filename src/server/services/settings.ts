@@ -40,6 +40,9 @@ export interface PanelSettings {
   notifyOnLowResources: boolean;
   notifyEmail: string;
 
+  /** Show the forced password-rotation screen for seeded default credentials. */
+  requireInitialPasswordChange: boolean;
+
   maxServersPerUser: number;
   maxRamPerServer: number;
   maxCpuPerServer: number;
@@ -103,6 +106,10 @@ export const DEFAULT_SETTINGS: PanelSettings = {
   notifyOnLowResources: true,
   notifyEmail: "",
 
+  // Off by default: operators can sign in, look around and change the password
+  // whenever they want instead of being blocked by a full-screen gate.
+  requireInitialPasswordChange: false,
+
   maxServersPerUser: 5,
   maxRamPerServer: 8192,
   maxCpuPerServer: 8,
@@ -158,6 +165,7 @@ export const publicSettings = async () => {
     allowRememberMe: s.allowRememberMe,
     showDemoCredentials: s.showDemoCredentials,
     passwordMinLength: s.passwordMinLength,
+    requireInitialPasswordChange: s.requireInitialPasswordChange,
     maintenanceMode: s.maintenanceMode,
     maintenanceMessage: s.maintenanceMessage,
     billingEnabled: s.billingEnabled,

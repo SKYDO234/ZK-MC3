@@ -16,6 +16,8 @@ export interface PublicSettings {
   allowRememberMe: boolean;
   showDemoCredentials: boolean;
   passwordMinLength: number;
+  /** Operator opt-in: force the rotation screen for seeded credentials. */
+  requireInitialPasswordChange?: boolean;
   maintenanceMode: boolean;
   maintenanceMessage: string;
   billingEnabled: boolean;
@@ -38,6 +40,7 @@ const FALLBACK: PublicSettings = {
   allowRememberMe: true,
   showDemoCredentials: true,
   passwordMinLength: 5,
+  requireInitialPasswordChange: false,
   maintenanceMode: false,
   maintenanceMessage: "",
   billingEnabled: true,
