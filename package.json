@@ -13,6 +13,7 @@
     "createuser": "tsx scripts/createuser.ts",
     "seed": "tsx scripts/seed.ts",
     "typecheck": "tsc --noEmit",
+    "check:shell": "bash scripts/check-shell.sh",
     "clean": "rm -rf dist",
     "qa:render": "npm run build && node qa-render.mjs"
   },

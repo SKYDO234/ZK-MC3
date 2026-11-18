@@ -49,6 +49,31 @@ warn() { say "  ${AMBER}!${NC} $*"; }
 fail() { say "  ${RED}✖${NC} $*"; }
 section() { say "\n${ORANGE}▸ ${WHITE}$*${NC}"; }
 
+# True when something is LISTENing on the given TCP port.
+# Matches "<addr>:<port>" at the end of an address token, so it works with every
+# ss/netstat column layout and for wildcard, loopback and IPv6 bind addresses.
+# Version string for the JVM, or "not installed". Never leaks shell errors.
+java_version_string() {
+  local bin
+  bin="$(command -v java 2>/dev/null || true)"
+  if [ -z "$bin" ]; then
+    echo "not installed"
+    return 0
+  fi
+  "$bin" -version 2>&1 | head -1 | tr -d '"' || echo "installed (version unavailable)"
+}
+
+port_is_listening() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lnt 2>/dev/null | awk -v p="$port" '$1 == "LISTEN" { n = split($4, a, ":"); if (a[n] == p) found = 1 } END { exit !found }' && return 0
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -lnt 2>/dev/null | awk -v p="$port" '$6 == "LISTEN" || $4 ~ /LISTEN/ { n = split($4, a, ":"); if (a[n] == p) found = 1 } END { exit !found }' && return 0
+  fi
+  return 1
+}
+
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
   if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
@@ -153,14 +178,14 @@ install_node() {
 install_java() {
   section "Installing Java runtime (for Minecraft servers)"
   if command -v java >/dev/null 2>&1; then
-    ok "Java already present: $(java -version 2>&1 | head -1 | tr -d '"')"
+    ok "Java already present: $(java_version_string)"
     return 0
   fi
   info "Installing OpenJDK 21 (headless)"
   pkg_install openjdk-21-jre-headless || pkg_install openjdk-21-jdk-headless || pkg_install java-21-openjdk-headless || \
     pkg_install openjdk-17-jre-headless || warn "Could not auto-install Java 21 — install a JDK manually."
   if command -v java >/dev/null 2>&1; then
-    ok "Java installed: $(java -version 2>&1 | head -1 | tr -d '"')"
+    ok "Java installed: $(java_version_string)"
   else
     warn "Java not found. Minecraft servers will use the panel's emulated console until you install a JDK ('apt install openjdk-21-jre-headless')."
   fi
@@ -244,9 +269,9 @@ OWNER_EMAIL=owner@zk-mc3.local
 SEED_DEMO=true
 EOF
     chmod 600 .env
-    ok ".env generated with a random JWT secret"
+    ok ".env generated with the default owner credentials"
     say "    ${DIM}Owner account: ${WHITE}admin${NC}${DIM} / ${WHITE}${OWNER_PASS}${NC}"
-    say "    ${YELLOW}⚠ Change this password now — it is the documented default.${NC}"
+    say "    ${AMBER}⚠ Change this password now — it is the documented default.${NC}"
   fi
 
   mkdir -p .data backups public/uploads logs
@@ -282,14 +307,26 @@ start_panel() {
 
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete "$PM2_APP" >/dev/null 2>&1 || true
-    pm2 start dist/server.cjs --name "$PM2_APP" --time --update-env >/dev/null 2>&1
+    if ! pm2 start dist/server.cjs --name "$PM2_APP" --time --update-env >/tmp/zk-mc3-pm2.log 2>&1; then
+      warn "PM2 could not start the panel:"
+      sed 's/^/      /' /tmp/zk-mc3-pm2.log | tail -8
+    fi
+    rm -f /tmp/zk-mc3-pm2.log
     pm2 save >/dev/null 2>&1 || true
     run_root env PATH="$PATH" pm2 startup >/dev/null 2>&1 || pm2 startup >/dev/null 2>&1 || true
     sleep 2
     if pm2 list 2>/dev/null | grep -q "$PM2_APP.*online"; then
       ok "Panel running under PM2 (${PM2_APP})"
     else
-      warn "PM2 did not report 'online' — check 'pm2 logs ${PM2_APP}'"
+      warn "PM2 did not report 'online' — falling back to a direct node process."
+      pkill -f "dist/server.cjs" >/dev/null 2>&1 || true
+      (setsid nohup node dist/server.cjs > logs/panel.log 2>&1 < /dev/null &)
+      sleep 3
+      if port_is_listening "$PANEL_PORT"; then
+        ok "Panel started directly — logs at ${INSTALL_DIR}/logs/panel.log"
+      else
+        fail "Panel did not start. Check logs: ${INSTALL_DIR}/logs/panel.log"
+      fi
     fi
   else
     info "Starting with nohup (PM2 unavailable)"
@@ -299,9 +336,7 @@ start_panel() {
     ok "Panel started — logs at ${INSTALL_DIR}/logs/panel.log"
   fi
 
-  if command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null | grep -q ":${PANEL_PORT} "; then
-    ok "Listening on port ${PANEL_PORT}"
-  elif command -v netstat >/dev/null 2>&1 && netstat -lnt 2>/dev/null | grep -q ":${PANEL_PORT} "; then
+  if port_is_listening "$PANEL_PORT"; then
     ok "Listening on port ${PANEL_PORT}"
   else
     warn "Port ${PANEL_PORT} is not listening yet — give it a few seconds."
@@ -399,10 +434,20 @@ do_agent() {
     PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
       pm2 start agent/agent.js --name "$PM2_AGENT" --update-env >/dev/null 2>&1
     pm2 save >/dev/null 2>&1 || true
-    ok "Agent running under PM2 on port ${AGENT_PORT}"
+    sleep 2
+    if port_is_listening "$AGENT_PORT"; then
+      ok "Agent running under PM2 on port ${AGENT_PORT}"
+    else
+      warn "Agent is not listening on ${AGENT_PORT} — check 'pm2 logs ${PM2_AGENT}'"
+    fi
   else
     (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" node agent/agent.js > logs/agent.log 2>&1 < /dev/null &)
-    ok "Agent started on port ${AGENT_PORT}"
+    sleep 2
+    if port_is_listening "$AGENT_PORT"; then
+      ok "Agent started on port ${AGENT_PORT}"
+    else
+      fail "Agent did not start — check logs/agent.log"
+    fi
   fi
 
   say ""
@@ -459,7 +504,7 @@ do_status() {
 
   say ""
   say "  ${GRAY}Node${NC}   $(node -v 2>/dev/null || echo 'not installed')"
-  say "  ${GRAY}Java${NC}   $(java -version 2>&1 | head -1 | tr -d '\"' 2>/dev/null || echo 'not installed')"
+  say "  ${GRAY}Java${NC}   $(java_version_string)"
   say "  ${GRAY}Disk${NC}   $(df -h / 2>/dev/null | tail -1 | awk '{print $3" used / "$2" total"}')"
   say ""
 }
