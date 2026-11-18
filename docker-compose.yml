@@ -2,7 +2,7 @@
 # Usage:
 #   cp .env.example .env    # then edit JWT_SECRET / OWNER_PASSWORD
 #   docker compose up -d --build
-#   open http://localhost:6767
+#   open http://localhost:31120
 services:
   panel:
     build:
@@ -12,11 +12,11 @@ services:
     container_name: zk-mc3-panel
     restart: unless-stopped
     ports:
-      - "6767:6767"          # panel UI + API
+      - "31120:31120"        # panel UI + API
       - "26000-26050:26000-26050"   # Minecraft server port range
     environment:
       NODE_ENV: production
-      PORT: "6767"
+      PORT: "31120"
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       OWNER_USERNAME: ${OWNER_USERNAME:-admin}
@@ -27,7 +27,7 @@ services:
     volumes:
       - zk-mc3-data:/app/.data
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:6767/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:31120/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -42,9 +42,9 @@ services:
   #   volumes:
   #     - ./agent:/app/agent:ro
   #   ports:
-  #     - "6767:6767"
+  #     - "31120:31120"
   #   environment:
-  #     PORT: "6767"
+  #     PORT: "31120"
   #     ZK_PANEL_TOKEN: ${ZK_PANEL_TOKEN:-}
 
 volumes:

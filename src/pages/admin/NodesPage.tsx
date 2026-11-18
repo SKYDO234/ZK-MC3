@@ -35,7 +35,7 @@ export const NodesPage: React.FC = () => {
     name: "",
     hostname: "",
     ip: "",
-    port: 6767,
+    port: 31120,
     cpuCores: 8,
     memoryMb: 16384,
     diskMb: 204800,
@@ -47,7 +47,7 @@ export const NodesPage: React.FC = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", hostname: "", ip: "", port: 6767, cpuCores: 8, memoryMb: 16384, diskMb: 204800, location: "", description: "" });
+    setForm({ name: "", hostname: "", ip: "", port: 31120, cpuCores: 8, memoryMb: 16384, diskMb: 204800, location: "", description: "" });
     setModalOpen(true);
   };
 
@@ -298,7 +298,7 @@ curl -fsSL https://raw.githubusercontent.com/SKYDO234/ZK-MC3/main/install.sh -o 
 sudo bash install.sh --agent
 
 # Start the agent (reports to this panel)
-PORT=6767 ZK_PANEL_TOKEN=<node-token> node agent/agent.js`}
+PORT=31120 ZK_PANEL_TOKEN=<node-token> node agent/agent.js`}
           </pre>
         </div>
       </Card>

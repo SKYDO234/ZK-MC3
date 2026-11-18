@@ -18,6 +18,140 @@ export const isProcessAlive = (pid: number) => {
   }
 };
 
+/** PIDs of a process and all of its descendants (walks the proc filesystem). */
+export const processTree = (rootPid: number): number[] => {
+  if (!rootPid || rootPid <= 0) return [];
+  const parents = new Map<number, number>();
+  try {
+    for (const entry of fs.readdirSync("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      const pid = Number(entry);
+      if (pid === rootPid) continue;
+      try {
+        const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+        const tail = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+        const ppid = Number(tail[1] || 0);
+        if (ppid) parents.set(pid, ppid);
+      } catch {
+        /* process vanished */
+      }
+    }
+  } catch {
+    return [rootPid];
+  }
+  const children = new Map<number, number[]>();
+  parents.forEach((ppid, pid) => {
+    const list = children.get(ppid) || [];
+    list.push(pid);
+    children.set(ppid, list);
+  });
+  const result: number[] = [rootPid];
+  const queue = [rootPid];
+  while (queue.length) {
+    const current = queue.shift() as number;
+    for (const child of children.get(current) || []) {
+      if (!result.includes(child)) {
+        result.push(child);
+        queue.push(child);
+      }
+    }
+  }
+  return result;
+};
+
+/** Total CPU percent + RSS in MB for a whole process tree. */
+export const processTreeUsage = (rootPid: number) => {
+  const pids = processTree(rootPid);
+  let cpu = 0;
+  let ram = 0;
+  for (const pid of pids) {
+    cpu += processCpuPercent(pid);
+    ram += readProcRssMb(pid);
+  }
+  return { cpu: Math.round(cpu * 10) / 10, ram: Math.round(ram * 10) / 10, pids };
+};
+
+/**
+ * Ports a process tree currently listens on, resolved through socket inodes so
+ * it works for child processes (forks, `java -jar`, reloaded workers).
+ */
+export const listeningPorts = (rootPid: number): number[] => {
+  const pids = processTree(rootPid);
+  const inodes = new Set<string>();
+  for (const pid of pids) {
+    try {
+      const fdDir = `/proc/${pid}/fd`;
+      for (const fd of fs.readdirSync(fdDir)) {
+        try {
+          const link = fs.readlinkSync(`${fdDir}/${fd}`);
+          const match = /^socket:\[(\d+)\]$/.exec(link);
+          if (match) inodes.add(match[1]);
+        } catch {
+          /* fd closed while walking */
+        }
+      }
+    } catch {
+      /* not permitted / vanished */
+    }
+  }
+  if (!inodes.size) return [];
+
+  const ports = new Set<number>();
+  const tables = ["/proc/net/tcp", "/proc/net/tcp6"];
+  for (const table of tables) {
+    try {
+      const raw = fs.readFileSync(table, "utf8");
+      for (const line of raw.split("\n").slice(1)) {
+        const cols = line.trim().split(/\s+/);
+        if (cols.length < 10) continue;
+        if (cols[3] !== "0A") continue; // 0A = LISTEN
+        if (!inodes.has(cols[9])) continue;
+        const port = parseInt((cols[1] || "").split(":")[1] || "0", 16);
+        if (port) ports.add(port);
+      }
+    } catch {
+      /* table unavailable */
+    }
+  }
+  return Array.from(ports).sort((a, b) => a - b);
+};
+
+export interface PortOwner {
+  pid: number;
+  command: string;
+}
+
+/** Finds which processes are listening on a TCP port (used to clean stale sockets). */
+export const findPortOwners = async (port: number): Promise<PortOwner[]> => {
+  if (!port) return [];
+  try {
+    const { stdout } = await execAsync(`ss -ltnpH "sport = :${port}" 2>/dev/null`);
+    const owners: PortOwner[] = [];
+    for (const line of stdout.split("\n")) {
+      const pidMatch = /pid=(\d+)/.exec(line);
+      const nameMatch = /\(\("([^"]+)"/.exec(line);
+      if (!pidMatch) continue;
+      const pid = Number(pidMatch[1]);
+      if (owners.some((o) => o.pid === pid)) continue;
+      owners.push({ pid, command: nameMatch ? nameMatch[1] : "unknown" });
+    }
+    return owners;
+  } catch {
+    return [];
+  }
+};
+
+/** True once nothing is listening on the port (or after `timeoutMs`). */
+export const waitForPortFree = async (port: number, timeoutMs = 3000) => {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const owners = await findPortOwners(port);
+    if (!owners.length) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+};
+
 export const readProcTicks = (pid: number): number | null => {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");

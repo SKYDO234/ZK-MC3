@@ -56,161 +56,12 @@ import { useApi, useServerSocket, useDocumentTitle } from "../../lib/hooks";
 import { useToast } from "../../context/ToastContext";
 import { api, apiDownload, uploadFile } from "../../lib/api";
 import { formatMb, formatUptime, relativeTime, pct, formatBytes, formatDateTime } from "../../lib/format";
+import { ServerConsole } from "./ServerConsole";
 
 /* ------------------------------------------------------------------ Console */
-const ConsoleTab: React.FC<{ server: any; onStatus: (s: string) => void; onRefresh: () => void }> = ({
-  server,
-  onStatus,
-  onRefresh,
-}) => {
-  const [lines, setLines] = useState<string[]>([]);
-  const [command, setCommand] = useState("");
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const consoleRef = useRef<HTMLDivElement>(null);
-  const { success, error } = useToast();
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await api<{ logs: string }>(`/servers/${server.id}/logs`, { query: { lines: 400 } });
-        setLines((data.logs || "").split(/\r?\n/).filter(Boolean));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [server.id]);
-
-  useServerSocket(server.id, {
-    onLog: (chunk) => {
-      setLines((prev) => {
-        const next = [...prev, ...chunk.split(/\r?\n/).filter((l, i, arr) => l || i < arr.length - 1)];
-        return next.slice(-2500);
-      });
-    },
-    onStatus: (status) => {
-      onStatus(status);
-      onRefresh();
-    },
-    onError: (message) => error("Console error", message),
-  });
-
-  useEffect(() => {
-    if (autoScroll && consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
-  }, [lines, autoScroll]);
-
-  const send = async () => {
-    const value = command.trim();
-    if (!value) return;
-    setSending(true);
-    try {
-      await api(`/servers/${server.id}/command`, { method: "POST", body: { command: value } });
-      setHistory((prev) => [value, ...prev].slice(0, 40));
-      setHistoryIndex(-1);
-      setCommand("");
-    } catch (err: any) {
-      error("Command failed", err.message);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      send();
-    }
-    if (e.key === "ArrowUp" && history.length) {
-      e.preventDefault();
-      const next = Math.min(history.length - 1, historyIndex + 1);
-      setHistoryIndex(next);
-      setCommand(history[next]);
-    }
-    if (e.key === "ArrowDown" && history.length) {
-      e.preventDefault();
-      const next = Math.max(-1, historyIndex - 1);
-      setHistoryIndex(next);
-      setCommand(next === -1 ? "" : history[next]);
-    }
-  };
-
-  const colorize = (line: string) => {
-    if (/WARN|warning/i.test(line)) return "log-warn";
-    if (/ERROR|SEVERE|Exception|FAILED/i.test(line)) return "log-error";
-    if (/INFO|Done \(|Server started/i.test(line)) return "log-info";
-    return "";
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={server.status === "online" ? "online" : "offline"} dot>
-          {server.status === "online" ? "Connected" : "Server offline"}
-        </Badge>
-        <span className="text-[0.68rem] text-zinc-500">Live output via WebSocket</span>
-        <div className="ml-auto flex items-center gap-2">
-          <Switch checked={autoScroll} onChange={setAutoScroll} label="Auto-scroll" />
-          <Button
-            size="sm"
-            icon={<Trash2 size={12} />}
-            onClick={async () => {
-              await api(`/servers/${server.id}/console/clear`, { method: "POST" }).catch(() => {});
-              setLines([]);
-              success("Console cleared");
-            }}
-          >
-            Clear
-          </Button>
-          <Button size="sm" icon={<Download size={12} />} onClick={() => apiDownload(`/servers/${server.id}/logs?lines=5000`, `${server.name}-console.log`)}>
-            Export
-          </Button>
-        </div>
-      </div>
-
-      <div ref={consoleRef} className="zk-console h-[52vh] min-h-[320px]">
-        {lines.length === 0 && (
-          <p className="text-zinc-600">
-            No output yet. Start the server to see live logs here.
-            {"\n"}$ Press start in the header above.
-          </p>
-        )}
-        {lines.map((line, i) => (
-          <div key={i} className={colorize(line)}>
-            {line}
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-sm text-brand-400">$</span>
-        <input
-          className="zk-input font-mono text-[0.8rem]"
-          placeholder={
-            server.status === "online" ? "Type a command and press Enter (e.g. say Hello, op player, whitelist add)" : "Server must be online to send commands"
-          }
-          value={command}
-          onChange={(e) => setCommand(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={server.status !== "online"}
-        />
-        <Button
-          variant="primary"
-          icon={sending ? undefined : <Send size={14} />}
-          loading={sending}
-          onClick={send}
-          disabled={server.status !== "online"}
-        >
-          Send
-        </Button>
-      </div>
-      <p className="text-[0.66rem] text-zinc-600">
-        Use <span className="zk-kbd">↑</span> <span className="zk-kbd">↓</span> to cycle through command history.
-      </p>
-    </div>
-  );
-};
+const ConsoleTab: React.FC<{ server: any; onStatus: (s: string) => void; onRefresh: () => void }> = (props) => (
+  <ServerConsole server={props.server} onStatus={props.onStatus} onRefresh={props.onRefresh} />
+);
 
 /* ------------------------------------------------------------- FileManager */
 const FilesTab: React.FC<{ server: any }> = ({ server }) => {
@@ -864,50 +715,56 @@ const PluginsTab: React.FC<{ server: any }> = ({ server }) => {
     loadInstalled();
   }, [loadInstalled]);
 
-  const search = async () => {
-    const q = project.trim().toLowerCase();
-    if (!q) return;
+  const [catalogSource, setCatalogSource] = useState("");
+  const [installingId, setInstallingId] = useState("");
+
+  // Searches go through the panel so browsers on restricted networks (and the
+  // desktop app) still get results, and fall back to a curated catalog offline.
+  const search = async (query?: string) => {
+    const q = (query ?? project).trim();
     setSearching(true);
     try {
-      const res = await fetch(
-        `https://api.modrinth.com/v2/search?query=${encodeURIComponent(q)}&limit=8&facets=${encodeURIComponent(
-          JSON.stringify([[target === "mods" ? "project_type:mod" : "project_type:plugin"]])
-        )}`
-      );
-      const data = await res.json();
+      const data = await api<{ hits: any[]; source: string }>(`/servers/${server.id}/plugins/catalog`, {
+        query: { q, target, version: server.version },
+      });
       setResults(data.hits || []);
-    } catch {
-      error("Search failed", "Could not reach the Modrinth API from this browser.");
+      setCatalogSource(data.source === "offline" ? "Curated catalog (catalog API unreachable)" : "");
+    } catch (err: any) {
+      error("Search failed", err.message);
     } finally {
       setSearching(false);
     }
   };
 
   const install = async (hit: any) => {
+    setInstallingId(hit.id);
     try {
-      const versionsRes = await fetch(
-        `https://api.modrinth.com/v2/project/${hit.project_id}/version?loaders=${encodeURIComponent(
-          JSON.stringify([String(server.software).toLowerCase()])
-        )}&game_versions=${encodeURIComponent(JSON.stringify([server.version]))}`
-      );
-      const versions = await versionsRes.json();
-      const version = Array.isArray(versions) ? versions[0] : null;
-      if (!version) {
-        error("No compatible build", `No ${server.software} ${server.version} build found for ${hit.title}.`);
-        return;
-      }
-      const file = version.files?.find((f: any) => f.primary) || version.files?.[0];
-      if (!file) {
-        error("No downloadable file", "This project has no download available.");
-        return;
-      }
-      await api(`/servers/${server.id}/plugins/install`, { method: "POST", body: { url: file.url, fileName: file.filename, target } });
-      success("Installed", `${hit.title} ${version.version_number}`);
+      const { versions } = await api<{ versions: any[] }>(`/servers/${server.id}/plugins/versions`, {
+        query: { slug: hit.slug, version: server.version },
+      });
+      const version = (versions || [])[0];
+      await api(`/servers/${server.id}/plugins/install`, {
+        method: "POST",
+        body: {
+          target,
+          versionId: version?.id,
+          url: version?.file?.url,
+          fileName: version?.file?.filename || `${hit.slug}.jar`,
+        },
+      });
+      success("Installed", `${hit.title}${version?.versionNumber ? ` ${version.versionNumber}` : ""}`);
       loadInstalled();
     } catch (err: any) {
       error("Installation failed", err.message);
+    } finally {
+      setInstallingId("");
     }
   };
+
+  useEffect(() => {
+    if (server?.id) void search("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server?.id, target]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -969,7 +826,7 @@ const PluginsTab: React.FC<{ server: any }> = ({ server }) => {
             onChange={(e) => setProject(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && search()}
           />
-          <Button variant="primary" loading={searching} onClick={search}>
+          <Button variant="primary" loading={searching} onClick={() => search()}>
             Search
           </Button>
         </div>
@@ -987,7 +844,7 @@ const PluginsTab: React.FC<{ server: any }> = ({ server }) => {
                 <p className="truncate text-[0.78rem] font-medium text-zinc-200">{hit.title}</p>
                 <p className="truncate text-[0.64rem] text-zinc-500">{hit.description}</p>
               </div>
-              <Button size="sm" variant="primary" onClick={() => install(hit)}>
+              <Button size="sm" variant="primary" loading={installingId === hit.id} onClick={() => install(hit)}>
                 Install
               </Button>
             </div>
@@ -997,6 +854,7 @@ const PluginsTab: React.FC<{ server: any }> = ({ server }) => {
               Results are filtered to builds matching {server.software} {server.version}.
             </p>
           )}
+          {catalogSource && <p className="pt-1 text-center text-[0.62rem] text-amber-400/80">{catalogSource}</p>}
         </div>
       </Card>
     </div>

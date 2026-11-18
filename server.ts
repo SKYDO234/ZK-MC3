@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./src/server/services/panellog-install";
 import { Server as SocketServer } from "socket.io";
 import express from "express";
 import path from "path";
@@ -15,7 +16,6 @@ import { recoverRunningProcesses, findServer } from "./src/server/services/runti
 import { isAdminRole, listUsers, createUserRecord } from "./src/server/services/users";
 import { listServers, saveServers } from "./src/server/services/runtime";
 import { seedDemoData } from "./src/server/services/seed";
-
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -25,7 +25,7 @@ const io: import("socket.io").Server = new SocketServer(httpServer, {
 });
 app.set("io", io);
 
-const PORT = Number(process.env.PORT) || 6767;
+const PORT = Number(process.env.PORT) || 31120;
 const isDev = process.env.NODE_ENV === "development";
 
 app.use(cors());
@@ -143,15 +143,17 @@ const bootstrapOwner = async () => {
   if (users.length > 0) return;
   const settings = await getSettings();
   const username = process.env.OWNER_USERNAME || "admin";
-  const password = process.env.OWNER_PASSWORD || "admin12345";
+  const password = process.env.OWNER_PASSWORD || "admin";
   await createUserRecord({
     name: "Panel Owner",
     username,
     email: process.env.OWNER_EMAIL || "owner@zk-mc3.local",
     password,
     role: "owner",
+    // A seeded credential is public knowledge, so force a rotation on first use.
+    mustChangePassword: password === "admin" && username === "admin",
   });
-  console.log(`[ZK-MC3] Bootstrapped owner account "${username}" — change the password after signing in.`);
+  console.log(`[ZK-MC3] Bootstrapped owner account "${username}" — the panel will ask for a new password on first sign-in.`);
   void settings;
 };
 

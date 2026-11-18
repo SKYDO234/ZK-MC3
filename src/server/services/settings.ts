@@ -81,7 +81,7 @@ export const DEFAULT_SETTINGS: PanelSettings = {
   enableTwoFactor: false,
   allowRememberMe: true,
   sessionTimeoutHours: 168,
-  passwordMinLength: 8,
+  passwordMinLength: 5,
 
   smtpHost: "",
   smtpPort: 587,

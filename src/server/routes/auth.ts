@@ -73,7 +73,11 @@ router.post("/login", async (req, res) => {
     ip,
   });
 
-  res.json({ token, user: publicUser(users[idx]) });
+  res.json({
+    token,
+    user: publicUser(users[idx]),
+    mustChangePassword: Boolean(users[idx].mustChangePassword),
+  });
 });
 
 router.post("/register", async (req, res) => {
@@ -197,6 +201,7 @@ router.patch("/password", requireAuth, async (req: any, res) => {
     ...users[idx],
     password: await hashPassword(String(newPassword)),
     passwordVersion: (users[idx].passwordVersion || 0) + 1,
+    mustChangePassword: false,
     updatedAt: new Date().toISOString(),
   };
   await writeJSON("users.json", users);

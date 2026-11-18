@@ -14,6 +14,8 @@ export interface PanelUser {
   createdAt: string;
   lastLogin: string | null;
   lastIp: string | null;
+  /** True while the account still uses a seeded/default password. */
+  mustChangePassword?: boolean;
   twoFactor: boolean;
   preferences: {
     theme: string;
@@ -30,6 +32,8 @@ interface AuthContextValue {
   isAdmin: boolean;
   isOwner: boolean;
   login: (login: string, password: string, remember?: boolean) => Promise<PanelUser>;
+  mustChangePassword: boolean;
+  clearPasswordFlag: () => void;
   register: (payload: { name: string; username: string; email: string; password: string }) => Promise<PanelUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -41,6 +45,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<PanelUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!getToken()) {
@@ -51,6 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const me = await api<PanelUser>("/auth/me");
       setUser(me);
+      setMustChangePassword(Boolean((me as any).mustChangePassword));
     } catch {
       setUser(null);
     } finally {
@@ -75,6 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     setToken(data.token);
     setUser(data.user);
+    setMustChangePassword(Boolean((data as any).mustChangePassword || (data.user as any).mustChangePassword));
     return data.user;
   }, []);
 
@@ -99,6 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setToken("");
     setUser(null);
+    setMustChangePassword(false);
   }, []);
 
   const updateUser = useCallback((patch: Partial<PanelUser>) => {
@@ -112,12 +120,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAdmin: user?.role === "admin" || user?.role === "owner",
       isOwner: user?.role === "owner",
       login,
+      mustChangePassword,
+      clearPasswordFlag: () => setMustChangePassword(false),
       register,
       logout,
       refresh,
       updateUser,
     }),
-    [user, loading, login, register, logout, refresh, updateUser]
+    [user, loading, login, mustChangePassword, register, logout, refresh, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

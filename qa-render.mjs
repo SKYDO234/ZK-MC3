@@ -4,16 +4,16 @@
  * Renders every route of the real React app inside jsdom against a running
  * panel, so a broken page fails loudly instead of silently shipping.
  *
- *   1. npm run dev                 # panel on :6767
+ *   1. npm run dev                 # panel on :31120
  *   2. npm run qa:render           # renders all routes, exits non-zero on error
  *
- * Optional: QA_TOKEN=<jwt> QA_BASE=http://127.0.0.1:6767 npm run qa:render
+ * Optional: QA_TOKEN=<jwt> QA_BASE=http://127.0.0.1:31120 npm run qa:render
  * This file is a developer tool; it is not part of the production bundle.
  */
 import fs from "fs";
 import path from "path";
 
-const BASE = process.env.QA_BASE || "http://127.0.0.1:6767";
+const BASE = process.env.QA_BASE || "http://127.0.0.1:31120";
 const TOKEN = process.env.QA_TOKEN || "";
 const WIDTH = Number(process.env.QA_WIDTH || 1440);
 const ROUTES = (process.env.QA_ROUTES ||
@@ -125,7 +125,10 @@ async function renderRoute(route) {
     /Welcome back/i.test(text) &&
     /Keep me signed in|Sign in/i.test(text);
   const hasAppShell = doc.querySelectorAll("aside, nav").length > 0;
-  const bounced = !PUBLIC.includes(route) && hasLoginForm && !hasAppShell;
+  // Standalone authenticated screens (such as the forced password rotation) are
+  // full-page forms without the app shell, so they must not be mistaken for /login.
+  const isBounce = hasLoginForm && /Welcome back/i.test(text) && !/Secure your panel/i.test(text);
+  const bounced = !PUBLIC.includes(route) && isBounce && !hasAppShell;
   if (bounced) errors.push("auth: route rendered the login screen — QA_TOKEN missing, expired, or the shell failed to mount");
 
   return { route, bytes: html.length, errors: [...new Set(errors)], preview: text.slice(0, 100) };
@@ -135,7 +138,9 @@ const results = [];
 for (const route of ROUTES) {
   const r = await renderRoute(route.trim());
   results.push(r);
-  const bad = r.errors.length > 0 || r.bytes < 4000;
+  // Full-page forms (e.g. the forced password rotation) are legitimately small.
+  const MIN_BYTES = ["/change-password"].includes(route.trim()) ? 2500 : 4000;
+  const bad = r.errors.length > 0 || r.bytes < MIN_BYTES;
   console.log(
     `${bad ? "✖" : "✔"} ${route.padEnd(26)} ${String(r.bytes).padStart(7)} bytes` +
       (r.errors.length ? `  (${r.errors.length} error${r.errors.length > 1 ? "s" : ""})` : "")
@@ -146,6 +151,6 @@ for (const route of ROUTES) {
 fs.rmSync(path.join(ROOT, "qa-entry.tsx"), { force: true });
 fs.rmSync(path.join(ROOT, "qa-bundle.js"), { force: true });
 
-const failures = results.filter((r) => r.errors.length || r.bytes < 4000);
+const failures = results.filter((r) => r.errors.length || (r.bytes < 4000 && !r.route.includes("change-password")));
 console.log(`\n${results.length - failures.length}/${results.length} routes rendered cleanly · artefacts in ${OUT}`);
 process.exit(failures.length ? 1 : 0);

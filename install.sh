@@ -35,7 +35,7 @@ CEO="MD Ziyan Hossain"
 REPO_URL="${ZK_REPO_URL:-https://github.com/SKYDO234/ZK-MC3.git}"
 BRANCH="${ZK_BRANCH:-main}"
 INSTALL_DIR="${ZK_DIR:-/opt/zk-mc3}"
-PANEL_PORT="${PANEL_PORT:-6767}"
+PANEL_PORT="${PANEL_PORT:-31120}"
 AGENT_PORT="${AGENT_PORT:-6768}"
 PM2_APP="zk-mc3-panel"
 PM2_AGENT="zk-mc3-agent"
@@ -162,7 +162,7 @@ install_java() {
   if command -v java >/dev/null 2>&1; then
     ok "Java installed: $(java -version 2>&1 | head -1 | tr -d '"')"
   else
-    warn "Java not found. Minecraft servers will require a JDK (install later with 'apt install openjdk-21-jre-headless')."
+    warn "Java not found. Minecraft servers will use the panel's emulated console until you install a JDK ('apt install openjdk-21-jre-headless')."
   fi
 }
 
@@ -218,8 +218,9 @@ configure_env() {
     ok ".env already exists — keeping current secrets"
   else
     JWT_SECRET=$(openssl rand -hex 48 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -d '\n/+=' )
-    OWNER_PASS=$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 14)
-    [ -z "$OWNER_PASS" ] && OWNER_PASS="admin12345"
+    # Predictable first-run login so the panel is reachable straight after install.
+    # Override with OWNER_PASS=... before running the installer (or edit .env).
+    OWNER_PASS="${OWNER_PASS:-admin}"
 
     cat > .env <<EOF
 # ---------------------------------------------------------------
@@ -245,6 +246,7 @@ EOF
     chmod 600 .env
     ok ".env generated with a random JWT secret"
     say "    ${DIM}Owner account: ${WHITE}admin${NC}${DIM} / ${WHITE}${OWNER_PASS}${NC}"
+    say "    ${YELLOW}⚠ Change this password now — it is the documented default.${NC}"
   fi
 
   mkdir -p .data backups public/uploads logs

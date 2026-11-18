@@ -33,6 +33,8 @@ import {
   safeJoin,
 } from "../services/runtime";
 import { SOFTWARE_TYPES, javaVersionFor } from "../services/software";
+import { findPortOwners } from "../services/proc";
+import { installProjectFile, searchCatalog, projectVersions, serverLoader } from "../services/files";
 import { createBackupZip, restoreBackupZip, listBackups } from "../services/backups";
 
 const router = Router();
@@ -225,12 +227,21 @@ router.get("/:id/stats", requireScope("servers.read"), async (req: any, res) => 
   if (!server) return;
   const state = await getRuntimeState(server.id);
   const disk = await diskUsageMb(server.id).catch(() => 0);
+  // CPU is reported as a share of the cores allocated to this server so the
+  // gauge matches the limit shown next to it in the console sidebar.
+  const cpuPercent = server.cpu ? Math.round(state.cpu * 10) / 10 : state.cpu;
   res.json({
     ...state,
+    cpu: cpuPercent,
     disk,
+    status: state.running ? "online" : server.status === "suspended" ? "suspended" : "offline",
+    address: `${server.ip === "0.0.0.0" ? "0.0.0.0" : server.ip}:${server.port}`,
     limitRam: server.ram,
     limitCpu: server.cpu,
     limitDisk: server.disk,
+    ramPercent: server.ram ? Math.min(100, Math.round((state.ram / server.ram) * 100)) : 0,
+    cpuPercent: server.cpu ? Math.min(100 * server.cpu, Math.round((state.cpu / server.cpu) * 100)) : state.cpu,
+    diskPercent: server.disk ? Math.min(100, Math.round((disk / server.disk) * 100)) : 0,
   });
 });
 
@@ -261,6 +272,7 @@ const lifecycle = (action: "start" | "stop" | "restart" | "kill") => async (req:
       target: server.id,
       ip: clientIp(req),
     });
+    console.log(`[lifecycle] ${req.user.username || "user"} -> ${action} "${server.name}" (${server.id})`);
     res.json({ success: true, status: action === "stop" || action === "kill" ? "offline" : "online" });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -622,6 +634,11 @@ router.post("/", requireScope("servers.write"), async (req: any, res) => {
   if (existing.some((s) => Number(s.port) === Number(port)))
     return res.status(400).json({ error: "That port is already allocated to another server" });
 
+  // A port can be free in the panel database yet already bound on the node
+  // (another service, or an orphaned process). Catch it at creation time.
+  if (nodeId === "local" && (await findPortOwners(Number(port))).length)
+    return res.status(400).json({ error: `Port ${port} is already in use by another process on this node` });
+
   const targetOwnerId = isAdminRole(user.role) && ownerId ? ownerId : user.id;
   const owner = await findUserById(targetOwnerId);
   if (!owner) return res.status(400).json({ error: "Selected owner account does not exist" });
@@ -765,23 +782,16 @@ router.post("/:id/plugins/install", requireScope("servers.write"), async (req: a
   const server = await guardServer(req, res);
   if (!server) return;
   try {
-    const { url, fileName, target = "plugins" } = req.body || {};
-    if (!url || !/^https?:\/\//.test(String(url)))
-      return res.status(400).json({ error: "A valid download URL is required" });
-    const folder = target === "mods" ? "mods" : "plugins";
-    const dir = path.join(serverDir(server.id), folder);
-    await fs.ensureDir(dir);
-    const safeName = String(fileName || "plugin.jar").replace(/[^a-zA-Z0-9._-]/g, "-");
-    const dest = safeJoin(dir, safeName);
-
-    const response = await fetch(String(url), {
-      headers: { "User-Agent": "ZK-MC3-PANEL/1.0" },
-      redirect: "follow",
+    const { url, fileName, target = "plugins", versionId } = req.body || {};
+    if (!versionId && (!url || !/^https?:\/\//.test(String(url))))
+      return res.status(400).json({ error: "A valid download URL or version id is required" });
+    const installed = await installProjectFile(server.id, {
+      url: url ? String(url) : undefined,
+      versionId: versionId ? String(versionId) : undefined,
+      target: target === "mods" ? "mods" : "plugins",
+      fileName: fileName ? String(fileName) : undefined,
     });
-    if (!response.ok) throw new Error(`Download failed (HTTP ${response.status})`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length < 1024) throw new Error("Downloaded file looks invalid (too small)");
-    await fs.writeFile(dest, buffer);
+    const { fileName: safeName } = installed;
 
     await logActivity({
       type: "server",
@@ -792,9 +802,35 @@ router.post("/:id/plugins/install", requireScope("servers.write"), async (req: a
       target: server.id,
       ip: clientIp(req),
     });
-    res.json({ success: true, fileName: safeName, size: buffer.length });
+    res.json({ success: true, fileName: safeName, size: installed.bytes, folder: installed.folder });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Plugin / mod catalog (Modrinth proxy)
+// ---------------------------------------------------------------------------
+router.get("/:id/plugins/catalog", requireScope("servers.read"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = String(req.query.target || "plugins") === "mods" ? "mods" : "plugins";
+  const result = await searchCatalog(String(req.query.q || ""), target, String(req.query.version || ""));
+  res.json({ ...result, loader: serverLoader(server.software) });
+});
+
+router.get("/:id/plugins/versions", requireScope("servers.read"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  try {
+    const versions = await projectVersions(
+      String(req.query.slug || ""),
+      String(req.query.version || server.version || ""),
+      String(req.query.loader || serverLoader(server.software))
+    );
+    res.json({ versions });
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message || "Could not reach the mod catalog" });
   }
 });
 

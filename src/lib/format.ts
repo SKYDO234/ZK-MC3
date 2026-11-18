@@ -86,6 +86,8 @@ export const statusTone = (status: string) => {
     case "offline":
     case "stopped":
       return { badge: "zk-badge-offline", dot: "bg-zinc-500", label: "Offline" };
+    case "ready":
+      return { badge: "zk-badge-info", dot: "bg-sky-400", label: "Ready" };
     case "starting":
     case "installing":
       return { badge: "zk-badge-warn", dot: "bg-amber-400", label: status === "installing" ? "Installing" : "Starting" };
