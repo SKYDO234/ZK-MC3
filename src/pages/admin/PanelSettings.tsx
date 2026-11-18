@@ -246,6 +246,11 @@ export const PanelSettings: React.FC = () => {
                   { key: "enableTwoFactor", label: "Offer two-factor authentication", desc: "Adds an optional TOTP layer for accounts." },
                   { key: "allowRememberMe", label: "Allow 'remember me'", desc: "Extend session lifetimes to 30 days." },
                   { key: "loginAlert", label: "Login alerts", desc: "Notify users about sign-ins from new devices." },
+                  {
+                    key: "requireInitialPasswordChange",
+                    label: "Require initial password change",
+                    desc: "Block the panel until the seeded admin/admin credential is replaced. Off by default so you can sign in and rotate it whenever you like.",
+                  },
                 ].map((item) => (
                   <div key={item.key} className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
                     <div>

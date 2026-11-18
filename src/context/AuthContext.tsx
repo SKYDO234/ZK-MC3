@@ -34,6 +34,13 @@ interface AuthContextValue {
   login: (login: string, password: string, remember?: boolean) => Promise<PanelUser>;
   mustChangePassword: boolean;
   clearPasswordFlag: () => void;
+  /**
+   * Adopt the token returned by a password change. The server bumps
+   * `passwordVersion`, which invalidates every older token — including the one
+   * this tab is using — so the new token must be stored immediately or the very
+   * next request logs the user out.
+   */
+  adoptToken: (token: string) => Promise<void>;
   register: (payload: { name: string; username: string; email: string; password: string }) => Promise<PanelUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -109,6 +116,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMustChangePassword(false);
   }, []);
 
+  const adoptToken = useCallback(async (token: string) => {
+    if (token) setToken(token);
+    setMustChangePassword(false);
+    await refresh();
+  }, [refresh]);
+
   const updateUser = useCallback((patch: Partial<PanelUser>) => {
     setUser((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
@@ -122,12 +135,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       login,
       mustChangePassword,
       clearPasswordFlag: () => setMustChangePassword(false),
+      adoptToken,
       register,
       logout,
       refresh,
       updateUser,
     }),
-    [user, loading, login, mustChangePassword, register, logout, refresh, updateUser]
+    [user, loading, login, mustChangePassword, adoptToken, register, logout, refresh, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

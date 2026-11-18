@@ -1,7 +1,7 @@
 import React from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { SettingsProvider } from "./context/SettingsContext";
+import { SettingsProvider, useSettings } from "./context/SettingsContext";
 import { ToastProvider } from "./context/ToastContext";
 import { AppLayout } from "./components/AppLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
@@ -52,9 +52,14 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
  */
 const RequirePasswordChange: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { mustChangePassword, loading } = useAuth();
+  const { settings } = useSettings();
   const location = useLocation();
   if (loading) return <FullScreenLoader />;
-  if (mustChangePassword && location.pathname !== "/change-password") {
+  // Off by default: admins sign in normally and rotate the default credential
+  // whenever they choose from Account → Password. Operators who want a hard gate
+  // on shared deployments enable it in Panel Settings → Password policy.
+  const enforced = Boolean(settings.requireInitialPasswordChange);
+  if (enforced && mustChangePassword && location.pathname !== "/change-password") {
     return <Navigate to="/change-password" replace />;
   }
   return <>{children}</>;
