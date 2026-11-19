@@ -15,7 +15,6 @@ import { panelEvents } from "./src/server/events";
 import { recoverRunningProcesses, findServer } from "./src/server/services/runtime";
 import { isAdminRole, listUsers, createUserRecord } from "./src/server/services/users";
 import { listServers, saveServers } from "./src/server/services/runtime";
-import { seedDemoData } from "./src/server/services/seed";
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -201,9 +200,8 @@ const start = async () => {
   await bootstrapOwner();
   await repairServers();
   await recoverRunningProcesses();
-  if (process.env.SEED_DEMO !== "false") {
-    await seedDemoData().catch((e) => console.warn("[ZK-MC3] Demo seed skipped:", e.message));
-  }
+  // No demo data is ever written: a fresh install starts with exactly one
+  // account (the owner) and an empty server list.
   await attachFrontend();
 
   httpServer.listen(PORT, "0.0.0.0", () => {

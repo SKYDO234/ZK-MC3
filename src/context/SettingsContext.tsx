@@ -14,7 +14,6 @@ export interface PublicSettings {
   theme: string;
   enableRegistration: boolean;
   allowRememberMe: boolean;
-  showDemoCredentials: boolean;
   passwordMinLength: number;
   /** Operator opt-in: force the rotation screen for seeded credentials. */
   requireInitialPasswordChange?: boolean;
@@ -38,7 +37,6 @@ const FALLBACK: PublicSettings = {
   theme: "dark",
   enableRegistration: true,
   allowRememberMe: true,
-  showDemoCredentials: true,
   passwordMinLength: 5,
   requireInitialPasswordChange: false,
   maintenanceMode: false,

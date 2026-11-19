@@ -57,6 +57,7 @@ import { useToast } from "../../context/ToastContext";
 import { api, apiDownload, uploadFile } from "../../lib/api";
 import { formatMb, formatUptime, relativeTime, pct, formatBytes, formatDateTime } from "../../lib/format";
 import { ServerConsole } from "./ServerConsole";
+import { ModrinthManager } from "../../components/ModrinthManager";
 
 /* ------------------------------------------------------------------ Console */
 const ConsoleTab: React.FC<{ server: any; onStatus: (s: string) => void; onRefresh: () => void }> = (props) => (
@@ -688,178 +689,15 @@ const SettingsTab: React.FC<{ server: any; onSaved: () => void }> = ({ server, o
 };
 
 /* --------------------------------------------------------------- Plugins */
-const PluginsTab: React.FC<{ server: any }> = ({ server }) => {
-  const { success, error } = useToast();
-  const [installed, setInstalled] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [target, setTarget] = useState<"plugins" | "mods">(
-    ["FABRIC"].includes(String(server.software).toUpperCase()) ? "mods" : "plugins"
-  );
-  const [project, setProject] = useState("");
-  const [results, setResults] = useState<any[]>([]);
-  const [searching, setSearching] = useState(false);
 
-  const loadInstalled = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api<{ items: any[] }>(`/servers/${server.id}/files`, { query: { path: target } });
-      setInstalled((data.items || []).filter((i: any) => i.name.endsWith(".jar")));
-    } catch {
-      setInstalled([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [server.id, target]);
-
-  useEffect(() => {
-    loadInstalled();
-  }, [loadInstalled]);
-
-  const [catalogSource, setCatalogSource] = useState("");
-  const [installingId, setInstallingId] = useState("");
-
-  // Searches go through the panel so browsers on restricted networks (and the
-  // desktop app) still get results, and fall back to a curated catalog offline.
-  const search = async (query?: string) => {
-    const q = (query ?? project).trim();
-    setSearching(true);
-    try {
-      const data = await api<{ hits: any[]; source: string }>(`/servers/${server.id}/plugins/catalog`, {
-        query: { q, target, version: server.version },
-      });
-      setResults(data.hits || []);
-      setCatalogSource(data.source === "offline" ? "Curated catalog (catalog API unreachable)" : "");
-    } catch (err: any) {
-      error("Search failed", err.message);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const install = async (hit: any) => {
-    setInstallingId(hit.id);
-    try {
-      const { versions } = await api<{ versions: any[] }>(`/servers/${server.id}/plugins/versions`, {
-        query: { slug: hit.slug, version: server.version },
-      });
-      const version = (versions || [])[0];
-      await api(`/servers/${server.id}/plugins/install`, {
-        method: "POST",
-        body: {
-          target,
-          versionId: version?.id,
-          url: version?.file?.url,
-          fileName: version?.file?.filename || `${hit.slug}.jar`,
-        },
-      });
-      success("Installed", `${hit.title}${version?.versionNumber ? ` ${version.versionNumber}` : ""}`);
-      loadInstalled();
-    } catch (err: any) {
-      error("Installation failed", err.message);
-    } finally {
-      setInstallingId("");
-    }
-  };
-
-  useEffect(() => {
-    if (server?.id) void search("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [server?.id, target]);
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader
-          title={`Installed ${target}`}
-          subtitle={`${installed.length} jar file(s) in /${target}`}
-          icon={<Puzzle size={16} />}
-          action={
-            <div className="flex rounded-lg border border-white/[0.07] bg-black/30 p-0.5">
-              {(["plugins", "mods"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTarget(t)}
-                  className={`rounded px-2 py-1 text-[0.68rem] font-medium capitalize ${
-                    target === t ? "bg-brand-500/20 text-brand-200" : "text-zinc-500"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          }
-        />
-        <div className="mt-4 space-y-1.5">
-          {loading && <p className="py-6 text-center text-xs text-zinc-500">Loading…</p>}
-          {!loading && installed.length === 0 && (
-            <p className="py-6 text-center text-xs text-zinc-500">No {target} installed yet.</p>
-          )}
-          {installed.map((item) => (
-            <div
-              key={item.path}
-              className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-            >
-              <Puzzle size={13} className="text-brand-400" />
-              <span className="min-w-0 flex-1 truncate font-mono text-[0.72rem] text-zinc-300">{item.name}</span>
-              <span className="text-[0.64rem] text-zinc-600">{formatBytes(item.size)}</span>
-              <button
-                onClick={async () => {
-                  await api(`/servers/${server.id}/files`, { method: "DELETE", query: { path: item.path } }).catch(() => {});
-                  loadInstalled();
-                }}
-                className="text-zinc-500 hover:text-red-400"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader title="Browse Modrinth" subtitle="Search and install plugins/mods for this exact version" icon={<Plug size={16} />} />
-        <div className="mt-4 flex gap-2">
-          <input
-            className="zk-input"
-            placeholder="Search e.g. EssentialsX, LuckPerms, WorldEdit"
-            value={project}
-            onChange={(e) => setProject(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && search()}
-          />
-          <Button variant="primary" loading={searching} onClick={() => search()}>
-            Search
-          </Button>
-        </div>
-        <div className="mt-3 space-y-1.5">
-          {results.map((hit) => (
-            <div key={hit.project_id} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-              {hit.icon_url ? (
-                <img src={hit.icon_url} alt="" className="h-8 w-8 rounded-md object-cover" />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-white/5">
-                  <Puzzle size={13} className="text-zinc-500" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[0.78rem] font-medium text-zinc-200">{hit.title}</p>
-                <p className="truncate text-[0.64rem] text-zinc-500">{hit.description}</p>
-              </div>
-              <Button size="sm" variant="primary" loading={installingId === hit.id} onClick={() => install(hit)}>
-                Install
-              </Button>
-            </div>
-          ))}
-          {!searching && results.length === 0 && (
-            <p className="py-6 text-center text-xs text-zinc-500">
-              Results are filtered to builds matching {server.software} {server.version}.
-            </p>
-          )}
-          {catalogSource && <p className="pt-1 text-center text-[0.62rem] text-amber-400/80">{catalogSource}</p>}
-        </div>
-      </Card>
-    </div>
-  );
-};
+/**
+ * The plugin/mod manager lives in its own component so the JTG-style discover /
+ * installed / version-picker flow stays readable. Proxy servers are handled
+ * inside the component with an explanatory panel.
+ */
+const PluginsTab: React.FC<{ server: any }> = ({ server }) => (
+  <ModrinthManager serverId={server.id} software={server.software} version={server.version} />
+);
 
 /* ----------------------------------------------------------------- Main page */
 export const ServerView: React.FC = () => {

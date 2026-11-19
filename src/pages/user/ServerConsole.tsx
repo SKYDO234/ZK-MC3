@@ -28,7 +28,17 @@ import { useToast } from "../../context/ToastContext";
 import { formatUptime } from "../../lib/format";
 import { Switch } from "../../components/ui";
 
-/* ------------------------------------------------------------------ helpers */
+/**
+ * Server console — JTG-parity layout.
+ * ---------------------------------------------------------------------------
+ * Structure matches the JTG panel exactly:
+ *   • status orb + server name, with round Start / Restart / Stop / Kill buttons
+ *   • a tall monospace console beside a column of stat tiles
+ *     (address, uptime, CPU, memory, disk, network in/out)
+ *   • three area charts underneath: CPU %, memory MB, network KB/s
+ *
+ * Numbers are the node's real measurements; nothing is synthesised.
+ */
 
 const ANSI = /\x1B\[[0-9;?]*[ -/]*[@-~]/g;
 const stripAnsi = (value: string) => value.replace(ANSI, "");
@@ -42,8 +52,14 @@ const clock = (iso?: string | null) => {
 
 const formatMb = (mb: number) => {
   if (!mb) return "0 MB";
-  if (mb < 1024) return `${mb.toFixed(mb < 10 ? 2 : 0)} MB`;
+  if (mb < 1024) return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
   return `${(mb / 1024).toFixed(2)} GB`;
+};
+
+const formatRateKb = (kbPerSecond: number) => {
+  if (!kbPerSecond) return "0 KB/s";
+  if (kbPerSecond < 1024) return `${kbPerSecond.toFixed(1)} KB/s`;
+  return `${(kbPerSecond / 1024).toFixed(2)} MB/s`;
 };
 
 const formatRate = (bytesPerSecond: number) => {
@@ -66,11 +82,12 @@ const classify = (raw: string): LineKind => {
 };
 
 const LOG_CAP = 2000;
-const SPARK_CAP = 36;
+const CHART_CAP = 30;
 
 interface StatsPayload {
   running: boolean;
-  simulated?: boolean;
+  isRunning?: boolean;
+  attached?: boolean;
   pid: number | null;
   startedAt: string | null;
   uptimeSeconds: number;
@@ -92,71 +109,87 @@ interface StatsPayload {
   listeningPorts?: number[];
 }
 
-/* ------------------------------------------------------------------ pieces */
+/* --------------------------------------------------------------- JTG tiles */
 
-const StatCard: React.FC<{
+const StatTile: React.FC<{
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
-  suffix?: React.ReactNode;
-  hint?: React.ReactNode;
-  accent?: string;
-}> = ({ icon, label, value, suffix, hint, accent = "text-brand-400" }) => (
-  <div className="group relative overflow-hidden rounded-xl border border-white/[0.06] bg-ink-850/80 px-3.5 py-3">
-    <div className="flex items-start justify-between gap-2">
-      <div className="min-w-0">
-        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">{label}</p>
-        <p className="mt-1 truncate font-display text-[0.95rem] font-bold text-zinc-50">
-          {value}
-          {suffix && <span className="ml-1 text-[0.66rem] font-medium text-zinc-500">{suffix}</span>}
-        </p>
-        {hint && <p className="mt-0.5 truncate text-[0.6rem] text-zinc-600">{hint}</p>}
-      </div>
-      <span className={`flex-none ${accent} opacity-70 transition-opacity group-hover:opacity-100`}>{icon}</span>
+  dim?: React.ReactNode;
+}> = ({ icon, label, value, dim }) => (
+  <div className="group relative flex min-h-[84px] flex-col justify-center overflow-hidden rounded-[10px] bg-[#131010] py-4 pl-[92px] pr-[18px] transition-colors hover:bg-[#1c1818]">
+    <div className="pointer-events-none absolute left-[14px] top-1/2 -translate-y-1/2 -rotate-[20deg] text-[#242121] opacity-90 transition-all duration-300 group-hover:scale-110 group-hover:text-[#2f2a2a]">
+      {icon}
+    </div>
+    <div className="relative z-10 mb-1.5 text-[13px] text-[#9a9a9a]">{label}</div>
+    <div className="relative z-10 overflow-hidden text-ellipsis whitespace-nowrap text-[17px] font-bold text-white">
+      {value}
+      {dim && <span className="ml-1 text-[13px] font-normal text-[#6f6f6f]">{dim}</span>}
     </div>
   </div>
 );
 
-const SparkCard: React.FC<{
+const ChartCard: React.FC<{
   title: string;
-  data: { value: number }[];
-  color: string;
-  value: string;
-  legend?: React.ReactNode;
+  data: Array<Record<string, number>>;
+  dataKey: string;
+  dataKey2?: string;
   max?: number;
-}> = ({ title, data, color, value, legend, max }) => {
+  colors: [string, string];
+  icons?: React.ReactNode;
+}> = ({ title, data, dataKey, dataKey2, max, colors, icons }) => {
   const padded = useMemo(() => {
     const rows = [...data];
-    while (rows.length < SPARK_CAP) rows.unshift({ value: 0 });
+    while (rows.length < CHART_CAP) {
+      rows.unshift({ [dataKey]: 0, ...(dataKey2 ? { [dataKey2]: 0 } : {}) });
+    }
     return rows;
-  }, [data]);
+  }, [data, dataKey, dataKey2]);
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-ink-850/80 p-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">{title}</p>
-        <span className="flex items-center gap-2 text-[0.62rem] text-zinc-500">{legend}</span>
+    <div className="rounded-[10px] bg-[#131010] px-5 py-[18px]">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-[15px] font-bold text-white">{title}</div>
+        {icons && <div className="flex items-center gap-[9px]">{icons}</div>}
       </div>
-      <p className="mt-1 font-display text-sm font-bold text-zinc-100">{value}</p>
-      <div className="mt-2 h-14">
+      <div className="relative h-[190px]">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={padded} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+          <AreaChart data={padded} margin={{ top: 0, left: 0, right: 0, bottom: 0 }}>
             <defs>
-              <linearGradient id={`spark-${title.replace(/\W/g, "")}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.4} />
-                <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+              <linearGradient id={`fill-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.3} />
+                <stop offset="100%" stopColor={colors[0]} stopOpacity={0.03} />
               </linearGradient>
+              {dataKey2 && (
+                <linearGradient id={`fill-${dataKey2}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={colors[1]} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={colors[1]} stopOpacity={0.03} />
+                </linearGradient>
+              )}
             </defs>
             <YAxis domain={[0, max || "auto"]} hide />
             <Area
               type="monotone"
-              dataKey="value"
-              stroke={color}
-              strokeWidth={1.8}
-              fill={`url(#spark-${title.replace(/\W/g, "")})`}
+              dataKey={dataKey}
+              stroke={colors[0]}
+              strokeWidth={2}
+              fillOpacity={1}
+              fill={`url(#fill-${dataKey})`}
               isAnimationActive={false}
               dot={false}
             />
+            {dataKey2 && (
+              <Area
+                type="monotone"
+                dataKey={dataKey2}
+                stroke={colors[1]}
+                strokeWidth={2}
+                fillOpacity={1}
+                fill={`url(#fill-${dataKey2})`}
+                isAnimationActive={false}
+                dot={false}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -184,16 +217,16 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
   const [showFilter, setShowFilter] = useState(false);
   const [copied, setCopied] = useState(false);
   const [stats, setStats] = useState<StatsPayload | null>(null);
-  const [cpuHist, setCpuHist] = useState<{ value: number }[]>([]);
-  const [ramHist, setRamHist] = useState<{ value: number }[]>([]);
-  const [netHist, setNetHist] = useState<{ value: number }[]>([]);
+  const [cpuHist, setCpuHist] = useState<Array<Record<string, number>>>([]);
+  const [ramHist, setRamHist] = useState<Array<Record<string, number>>>([]);
+  const [netHist, setNetHist] = useState<Array<Record<string, number>>>([]);
   const [tick, setTick] = useState(0);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const stampRef = useRef<number>(Date.now());
+  const startedAtRef = useRef<string | null | undefined>(server?.startedAt);
 
-  const isOnline = stats?.running ?? server.status === "online";
+  const isOnline = stats?.isRunning ?? stats?.running ?? server.status === "online";
 
   /* ---- initial backlog ---- */
   useEffect(() => {
@@ -228,15 +261,28 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     },
   });
 
-  /* ---- stats polling ---- */
+  /* ---- stats polling (JTG: every 3s, paused when the tab is hidden) ---- */
   const pullStats = useCallback(async () => {
     if (document.visibilityState === "hidden") return;
     try {
       const data = await api<StatsPayload>(`/servers/${server.id}/stats`);
       setStats(data);
-      setCpuHist((prev) => [...prev, { value: data.cpu || 0 }].slice(-SPARK_CAP));
-      setRamHist((prev) => [...prev, { value: data.ram || 0 }].slice(-SPARK_CAP));
-      setNetHist((prev) => [...prev, { value: Math.round(((data.netInRate || 0) + (data.netOutRate || 0)) / 1024) }].slice(-SPARK_CAP));
+      setCpuHist((prev) => [...prev, { cpu: Math.round((data.cpu || 0) * 10) / 10 }].slice(-CHART_CAP));
+      setRamHist((prev) => [...prev, { ram: Math.round(data.ram || 0) }].slice(-CHART_CAP));
+      setNetHist((prev) =>
+        [
+          ...prev,
+          {
+            netIn: Math.round(((data.netInRate || 0) / 1024) * 10) / 10,
+            netOut: Math.round(((data.netOutRate || 0) / 1024) * 10) / 10,
+          },
+        ].slice(-CHART_CAP)
+      );
+      // A new session (restart) starts a fresh console, exactly like JTG.
+      if (data.startedAt && startedAtRef.current && data.startedAt !== startedAtRef.current) {
+        setLines([]);
+      }
+      startedAtRef.current = data.startedAt;
     } catch {
       /* keep the last sample */
     }
@@ -331,6 +377,7 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
 
   const act = async (action: "start" | "stop" | "restart" | "kill") => {
     setBusy(action);
+    if (action === "start" || action === "restart") setLines([]);
     try {
       await api(`/servers/${server.id}/${action}`, { method: "POST" });
       success(`Server ${action === "kill" ? "force-killed" : `${action}ed`}`, "Power action dispatched.");
@@ -368,11 +415,9 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     return lines.filter((line) => stripAnsi(line).toLowerCase().includes(needle));
   }, [lines, filter]);
 
-  const errorCount = useMemo(() => lines.filter((l) => classify(l) === "error").length, [lines]);
-  const warnCount = useMemo(() => lines.filter((l) => classify(l) === "warn").length, [lines]);
-
   const cpuLimit = stats?.limitCpu || server.cpu || 1;
   const ramLimit = stats?.limitRam || server.ram || 1024;
+  const diskLimit = stats?.limitDisk || server.disk || 0;
 
   const tone: Record<LineKind, string> = {
     info: "text-zinc-300",
@@ -383,199 +428,170 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     success: "text-emerald-300",
   };
 
+  const statusLabel = isOnline
+    ? "Running"
+    : stats?.status === "starting"
+    ? "Starting"
+    : stats?.status === "stopping"
+    ? "Stopping"
+    : "Offline";
+
   return (
-    <div className="space-y-4">
-      {/* power bar ------------------------------------------------------- */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="flex items-center gap-2 rounded-full border border-white/[0.07] bg-ink-850/80 px-3 py-1.5">
+    <div className="space-y-5">
+      {/* ---------------------------------------------------- top bar (JTG) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <span
-            className={`h-2 w-2 rounded-full ${
+            className={`h-[11px] w-[11px] shrink-0 rounded-full ${
               isOnline
-                ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.7)]"
+                ? "bg-[#42e33d] shadow-[0_0_10px_rgba(66,227,61,0.55)]"
                 : stats?.status === "starting" || stats?.status === "stopping"
-                ? "bg-amber-400"
-                : "bg-zinc-600"
+                ? "animate-pulse bg-[#e8bd15]"
+                : "bg-[#524b4b]"
             }`}
           />
-          <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-zinc-300">
-            {isOnline ? "Running" : stats?.status === "starting" ? "Starting" : stats?.status === "stopping" ? "Stopping" : "Offline"}
+          <h2 className="truncate text-xl font-extrabold text-white">{server.name}</h2>
+          <span className="rounded-full border border-white/[0.07] bg-white/[0.02] px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-zinc-400">
+            {statusLabel}
           </span>
-          {stats?.simulated && (
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.58rem] font-bold uppercase tracking-wide text-amber-300">
-              Emulated
-            </span>
-          )}
-        </span>
+        </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-2.5">
           <button
             type="button"
             onClick={() => act("start")}
             disabled={isOnline || busy === "start" || server.status === "suspended"}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-[0.72rem] font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Start server"
+            title="Start"
+            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#4CAF50] text-white transition-all hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
           >
-            <Play size={13} className="fill-current" /> Start
+            <Play size={18} className="fill-current" />
           </button>
           <button
             type="button"
             onClick={() => act("restart")}
             disabled={!isOnline || busy === "restart"}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3 text-[0.72rem] font-semibold text-ink-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Restart server"
+            title="Restart"
+            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#e8bd15] text-white transition-all hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
           >
-            <RotateCw size={13} /> Restart
+            <RotateCw size={18} />
           </button>
           <button
             type="button"
             onClick={() => act("stop")}
             disabled={!isOnline || busy === "stop"}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-[0.72rem] font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
             title="Graceful stop"
+            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#fb4242] text-white transition-all hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
           >
-            <Square size={12} className="fill-current" /> Stop
+            <Square size={17} className="fill-current" />
           </button>
           <button
             type="button"
             onClick={() => act("kill")}
             disabled={!isOnline || busy === "kill"}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-red-950 px-3 text-[0.72rem] font-semibold text-red-200 transition hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-40"
             title="Force kill (SIGKILL)"
+            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#7f1d1d] text-white transition-all hover:-translate-y-px hover:bg-[#991b1b] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
           >
-            <Power size={13} /> Kill
+            <Power size={18} />
           </button>
         </div>
       </div>
 
-      {/* console + stats ------------------------------------------------- */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[#07070a]">
-          {/* header */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-ink-900/80 px-3 py-2">
-            <TerminalIcon size={13} className="text-brand-400" />
-            <span className="font-mono text-[0.7rem] font-semibold text-zinc-300">console</span>
-            <span className="font-mono text-[0.62rem] text-zinc-600">{lines.length} lines</span>
-            {errorCount > 0 && (
-              <span className="rounded bg-red-500/15 px-1.5 py-0.5 font-mono text-[0.58rem] font-bold text-red-300">
-                {errorCount} errors
-              </span>
-            )}
-            {warnCount > 0 && (
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[0.58rem] font-bold text-amber-300">
-                {warnCount} warnings
-              </span>
-            )}
-            <div className="ml-auto flex items-center gap-1.5">
+      {/* ------------------------------------------- console + stat tiles */}
+      <div className="grid grid-cols-1 gap-[22px] xl:grid-cols-[1fr_320px]">
+        {/* console */}
+        <div className="flex h-[420px] flex-col overflow-hidden rounded-[10px] bg-[#131010] sm:h-[520px] xl:h-[700px]">
+          <div className="flex flex-wrap items-center gap-2 border-b border-[#232020] bg-[#191717] px-3.5 py-2">
+            <TerminalIcon size={13} className="text-[#8a8a8a]" />
+            <span className="font-mono text-[0.7rem] font-semibold text-[#c9c9c9]">console</span>
+            <span className="font-mono text-[0.62rem] text-[#5c5c5c]">{lines.length} lines</span>
+            <div className="ml-auto flex items-center gap-1">
               {showFilter ? (
-                <div className="flex items-center gap-1 rounded-md border border-white/10 bg-ink-850 px-2">
-                  <Search size={11} className="text-zinc-500" />
+                <div className="flex items-center gap-1 rounded-md border border-[#2a2626] bg-[#0d0c0c] px-2">
+                  <Search size={11} className="text-[#5c5c5c]" />
                   <input
                     autoFocus
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
                     placeholder="Filter output"
-                    className="w-28 bg-transparent py-1 font-mono text-[0.65rem] text-zinc-200 outline-none placeholder:text-zinc-600"
+                    className="w-28 bg-transparent py-1 font-mono text-[0.65rem] text-zinc-200 outline-none placeholder:text-[#5c5c5c]"
                   />
-                  <button type="button" onClick={() => { setShowFilter(false); setFilter(""); }} className="text-zinc-500 hover:text-zinc-200">
+                  <button type="button" onClick={() => { setShowFilter(false); setFilter(""); }} className="text-[#5c5c5c] hover:text-zinc-200">
                     <X size={11} />
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowFilter(true)}
-                  className="rounded p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
-                  title="Filter output"
-                >
+                <button type="button" onClick={() => setShowFilter(true)} className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200" title="Filter output">
                   <Search size={13} />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={copyLogs}
-                className="rounded p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
-                title="Copy console"
-              >
+              <button type="button" onClick={copyLogs} className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200" title="Copy console">
                 {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
               </button>
               <button
                 type="button"
                 onClick={() => apiDownload(`/servers/${server.id}/logs?lines=10000`, `${server.name}-console.log`)}
-                className="rounded p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
+                className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200"
                 title="Download log"
               >
                 <Download size={13} />
               </button>
-              <button
-                type="button"
-                onClick={clearConsole}
-                className="rounded p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
-                title="Clear console"
-              >
+              <button type="button" onClick={clearConsole} className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200" title="Clear console">
                 <Trash2 size={13} />
               </button>
             </div>
           </div>
 
-          {/* body */}
           <div className="relative flex-1">
             <div
               ref={bodyRef}
               onScroll={onScroll}
               onClick={() => inputRef.current?.focus()}
-              className="zk-terminal absolute inset-0 overflow-y-auto px-3 py-2.5 font-mono text-[0.72rem] leading-[1.6]"
+              className="absolute inset-0 select-text overflow-y-auto overflow-x-hidden bg-[#0d0c0c] px-3.5 py-3 font-mono text-[12.5px] leading-[1.62] text-[#c9c9c9] [overflow-wrap:anywhere]"
             >
               {visible.length === 0 && (
-                <div className="space-y-1 text-zinc-600">
+                <div className="space-y-1 text-[#5c5c5c]">
                   <p>{filter ? "No lines match that filter." : "Console is empty."}</p>
                   {!filter && <p>Start the server to stream live output here.</p>}
                 </div>
               )}
-              {visible.map((line, index) => {
-                const kind = classify(line);
-                return (
-                  <div key={`${index}-${line.slice(0, 12)}`} className="group flex gap-2.5">
-                    <span className="w-8 flex-none select-none text-right text-[0.62rem] text-zinc-700 group-hover:text-zinc-500">
-                      {index + 1}
-                    </span>
-                    <span className={`min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${tone[kind]}`}>
-                      {stripAnsi(line)}
-                    </span>
-                  </div>
-                );
-              })}
+              {visible.map((line, index) => (
+                <div key={`${index}-${line.slice(0, 12)}`} className={`mb-px min-w-0 break-words ${tone[classify(line)]}`}>
+                  {stripAnsi(line)}
+                </div>
+              ))}
             </div>
 
             {!atBottom && (
               <button
                 type="button"
                 onClick={scrollToBottom}
-                className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full border border-white/10 bg-ink-900/95 px-3 py-1.5 text-[0.62rem] font-medium text-zinc-200 shadow-xl backdrop-blur transition hover:bg-ink-800"
+                className="absolute bottom-[60px] right-3 z-20 flex items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/95 px-3 py-1.5 text-[11px] font-medium text-zinc-200 shadow-xl backdrop-blur-md transition hover:bg-zinc-800 active:scale-95"
+                title="Scroll to bottom"
               >
-                <ArrowDown size={11} className="animate-bounce text-emerald-400" /> Latest
+                <ArrowDown className="h-3.5 w-3.5 animate-bounce text-emerald-400" />
+                <span>Scroll to bottom</span>
               </button>
             )}
           </div>
 
-          {/* input */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               send();
             }}
-            className="flex items-center gap-2 border-t border-white/[0.06] bg-ink-900/90 px-3 py-2"
+            className="flex shrink-0 items-center gap-2.5 border-t border-[#232020] bg-[#191717] px-3.5 py-3"
           >
-            <ChevronRight size={14} className={isOnline ? "text-emerald-400" : "text-zinc-600"} />
+            <ChevronRight size={16} className={isOnline ? "text-[#8a8a8a]" : "text-[#4a4444]"} />
             <input
               ref={inputRef}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               onKeyDown={onKeyDown}
               disabled={!isOnline}
-              placeholder={isOnline ? "Type a command — try 'tps', 'list' or 'help'" : "Start the server to send commands"}
+              placeholder={isOnline ? "Type a command..." : "Start the server to send commands"}
               autoComplete="off"
               spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent font-mono text-[0.75rem] text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed"
+              className="min-w-0 flex-1 bg-transparent font-mono text-[13px] text-[#e9eaee] outline-none placeholder:text-[#5c5c5c] disabled:cursor-not-allowed"
             />
             <button
               type="submit"
@@ -587,91 +603,82 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
           </form>
         </div>
 
-        {/* sidebar */}
-        <div className="space-y-2.5">
-          <StatCard
-            icon={<Signal size={15} />}
+        {/* stat tiles */}
+        <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2 xl:flex xl:flex-col">
+          <StatTile
+            icon={<Wifi style={{ width: 56, height: 56 }} />}
             label="Address"
-            value={<span className="font-mono text-[0.8rem]">{server.ip === "0.0.0.0" ? "0.0.0.0" : server.ip}:{server.port}</span>}
-            hint={stats?.listeningPorts?.length ? `listening on ${stats.listeningPorts.join(", ")}` : "port not bound"}
+            value={<span className="font-mono">{server.ip === "0.0.0.0" ? "0.0.0.0" : server.ip}:{server.port}</span>}
           />
-          <StatCard icon={<Clock size={15} />} label="Uptime" value={isOnline ? formatUptime(uptimeSeconds) : "—"} hint={isOnline ? `PID ${stats?.pid ?? "—"}` : "server stopped"} />
-          <StatCard
-            icon={<Cpu size={15} />}
-            label="CPU load"
-            value={isOnline ? `${(stats?.cpu ?? 0).toFixed(1)}%` : "—"}
-            suffix={isOnline ? `/ ${cpuLimit} cores` : undefined}
-            hint={isOnline ? `${stats?.cpuPercent ?? 0}% of allocated share` : undefined}
+          <StatTile icon={<Clock style={{ width: 56, height: 56 }} />} label="Uptime" value={isOnline ? formatUptime(uptimeSeconds) : "—"} />
+          <StatTile
+            icon={<Cpu style={{ width: 56, height: 56 }} />}
+            label="CPU Load"
+            value={isOnline ? `${(stats?.cpu ?? 0).toFixed(2)}%` : "—"}
+            dim={isOnline ? `/ ${cpuLimit * 100}%` : undefined}
           />
-          <StatCard
-            icon={<MemoryStick size={15} />}
+          <StatTile
+            icon={<MemoryStick style={{ width: 56, height: 56 }} />}
             label="Memory"
             value={isOnline ? formatMb(stats?.ram ?? 0) : "—"}
-            suffix={isOnline ? `/ ${formatMb(ramLimit)}` : undefined}
-            hint={isOnline ? `${stats?.ramPercent ?? 0}% of heap limit` : undefined}
-            accent="text-sky-400"
+            dim={isOnline ? `/ ${formatMb(ramLimit)}` : undefined}
           />
-          <StatCard
-            icon={<HardDrive size={15} />}
+          <StatTile
+            icon={<HardDrive style={{ width: 56, height: 56 }} />}
             label="Disk"
             value={formatMb(stats?.disk ?? 0)}
-            suffix={`/ ${formatMb(stats?.limitDisk ?? server.disk ?? 0)}`}
-            hint={`${stats?.diskPercent ?? 0}% of quota`}
-            accent="text-violet-400"
+            dim={diskLimit ? `/ ${formatMb(diskLimit)}` : undefined}
           />
-          <StatCard
-            icon={<ArrowDown size={15} />}
-            label="Network in"
-            value={isOnline ? formatRate(stats?.netInRate ?? 0) : "—"}
-            hint={isOnline && stats?.netIn ? `${formatMb(stats.netIn / 1024 / 1024)} received` : undefined}
-            accent="text-emerald-400"
+          <StatTile
+            icon={<ArrowDown style={{ width: 56, height: 56 }} />}
+            label="Network (Inbound)"
+            value={isOnline ? `↓ ${formatRate(stats?.netInRate ?? 0)}` : "—"}
           />
-          <StatCard
-            icon={<ArrowUp size={15} />}
-            label="Network out"
-            value={isOnline ? formatRate(stats?.netOutRate ?? 0) : "—"}
-            hint={isOnline && stats?.netOut ? `${formatMb(stats.netOut / 1024 / 1024)} sent` : undefined}
-            accent="text-amber-400"
+          <StatTile
+            icon={<ArrowUp style={{ width: 56, height: 56 }} />}
+            label="Network (Outbound)"
+            value={isOnline ? `↑ ${formatRate(stats?.netOutRate ?? 0)}` : "—"}
           />
         </div>
       </div>
 
-      {/* sparklines ------------------------------------------------------ */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <SparkCard
-          title="CPU %"
+      {/* -------------------------------------------------- charts (JTG) */}
+      <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
+        <ChartCard
+          title="CPU Load (%)"
           data={cpuHist}
-          color="#ff7a18"
-          value={isOnline ? `${(stats?.cpu ?? 0).toFixed(1)}%` : "offline"}
+          dataKey="cpu"
           max={Math.max(10, cpuLimit * 100)}
+          colors={["#22d3ee", "#e8bd15"]}
         />
-        <SparkCard
-          title="Memory MB"
-          data={ramHist}
-          color="#38bdf8"
-          value={isOnline ? formatMb(stats?.ram ?? 0) : "offline"}
-          max={ramLimit}
-        />
-        <SparkCard
-          title="Network KB/s"
+        <ChartCard title="Memory (MB)" data={ramHist} dataKey="ram" max={ramLimit} colors={["#22d3ee", "#e8bd15"]} />
+        <ChartCard
+          title="Network (KB/s)"
           data={netHist}
-          color="#34d399"
-          value={isOnline ? formatRate((stats?.netInRate ?? 0) + (stats?.netOutRate ?? 0)) : "offline"}
-          legend={
+          dataKey="netIn"
+          dataKey2="netOut"
+          colors={["#22d3ee", "#e8bd15"]}
+          icons={
             <>
-              <span className="flex items-center gap-1"><ArrowDown size={9} className="text-emerald-400" />in</span>
-              <span className="flex items-center gap-1"><ArrowUp size={9} className="text-amber-400" />out</span>
+              <ArrowDown className="h-3 w-3 text-[#22d3ee]" />
+              <ArrowUp className="h-3 w-3 text-[#e8bd15]" />
             </>
           }
         />
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-[0.62rem] text-zinc-600">
-        <span className="flex items-center gap-1.5"><Wifi size={11} /> live via WebSocket</span>
         <span className="flex items-center gap-1.5">
-          <span className="zk-kbd">↑</span><span className="zk-kbd">↓</span> history
+          <Signal size={11} /> live via WebSocket
         </span>
-        <span className="flex items-center gap-1.5"><span className="zk-kbd">ctrl</span><span className="zk-kbd">L</span> clear</span>
+        <span className="flex items-center gap-1.5">
+          <span className="zk-kbd">↑</span>
+          <span className="zk-kbd">↓</span> history
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="zk-kbd">ctrl</span>
+          <span className="zk-kbd">L</span> clear
+        </span>
         <div className="ml-auto flex items-center gap-2">
           <Switch checked={autoScroll} onChange={setAutoScroll} label="Auto-scroll" />
           <span className="text-zinc-600">{clock(stats?.startedAt)}</span>

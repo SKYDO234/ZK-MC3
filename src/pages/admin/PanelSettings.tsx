@@ -203,9 +203,7 @@ export const PanelSettings: React.FC = () => {
                 <Field label="Or paste an image URL" className="mt-4">
                   <input className="zk-input" value={form.logoUrl} onChange={(e) => set("logoUrl", e.target.value)} />
                 </Field>
-                <Field label="Demo credentials on login" className="mt-3">
-                  <Switch checked={form.showDemoCredentials} onChange={(v) => set("showDemoCredentials", v)} label="Show demo logins" />
-                </Field>
+                
               </Card>
 
               <Card>

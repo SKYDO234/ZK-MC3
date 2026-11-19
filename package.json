@@ -11,7 +11,6 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "createuser": "tsx scripts/createuser.ts",
-    "seed": "tsx scripts/seed.ts",
     "typecheck": "tsc --noEmit",
     "check:shell": "bash scripts/check-shell.sh",
     "clean": "rm -rf dist",

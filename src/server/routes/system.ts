@@ -5,7 +5,7 @@ import { buildUserDashboard } from "../services/stats";
 import { notificationsFor, markRead } from "../services/notifications";
 import { activityForUser, listActivity } from "../services/activity";
 import { softwareHealth } from "../services/health";
-import { getVersions, SOFTWARE_TYPES } from "../services/software";
+import { getVersions, SOFTWARE_TYPES, upstreamStatus, clearVersionCache } from "../services/software";
 
 const router = Router();
 
@@ -23,9 +23,26 @@ router.get("/software", requireAuth, async (_req, res) => {
 });
 
 router.get("/versions", requireAuth, async (req, res) => {
-  const software = String(req.query.software || "PAPER");
+  const software = String(req.query.software || "PAPER").toUpperCase();
   const versions = await getVersions(software);
-  res.json({ software, versions });
+  const upstream = upstreamStatus();
+  if (!versions.length) {
+    return res.status(503).json({
+      software,
+      versions: [],
+      upstream,
+      error: upstream.reachable
+        ? `No downloadable versions were published for ${software}.`
+        : `Cannot reach the ${software} version API from this node. Check outbound internet access — retrying in ${upstream.retryInSeconds}s.`,
+    });
+  }
+  res.json({ software, versions, upstream });
+});
+
+// Drops the cached version lists so the next request re-queries upstream.
+router.post("/versions/refresh", requireAuth, async (_req, res) => {
+  clearVersionCache();
+  res.json({ success: true, ...upstreamStatus() });
 });
 
 router.get("/dashboard", requireAuth, async (req: any, res) => {

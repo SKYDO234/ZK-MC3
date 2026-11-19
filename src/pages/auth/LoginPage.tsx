@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, LogIn, AlertCircle, ShieldCheck, User, KeyRound } from "lucide-react";
+import { Eye, EyeOff, LogIn, AlertCircle, User, KeyRound } from "lucide-react";
 import { AuthShell } from "./AuthShell";
 import { useAuth } from "../../context/AuthContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -41,15 +41,6 @@ export const LoginPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemo = (who: "owner" | "client") => {
-    setForm({
-      login: who === "owner" ? "admin" : "demo",
-      password: who === "owner" ? "admin" : "demo12345",
-      remember: true,
-    });
-    setError("");
   };
 
   return (
@@ -140,33 +131,6 @@ export const LoginPage: React.FC = () => {
         </button>
       </form>
 
-      {settings.showDemoCredentials && (
-        <div className="mt-6 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
-          <p className="mb-2 flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-wider text-zinc-500">
-            <ShieldCheck size={12} className="text-brand-400" /> Demo logins
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => fillDemo("owner")}
-              className="zk-btn zk-btn-ghost zk-btn-sm flex-1"
-            >
-              Owner · admin
-            </button>
-            <button
-              type="button"
-              onClick={() => fillDemo("client")}
-              className="zk-btn zk-btn-ghost zk-btn-sm flex-1"
-            >
-              Client · demo
-            </button>
-          </div>
-          <p className="mt-2 text-[0.64rem] leading-relaxed text-zinc-600">
-            Default seed password is <span className="font-mono text-zinc-500">admin</span> — change it
-            from Account settings after your first sign-in.
-          </p>
-        </div>
-      )}
     </AuthShell>
   );
 };
