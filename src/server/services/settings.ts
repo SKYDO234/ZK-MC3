@@ -62,6 +62,9 @@ export interface PanelSettings {
   maintenanceMessage: string;
   loginAlert: boolean;
 
+  /** Playit.gg tunnels — the per-server "expose to the internet" feature. */
+  enablePlayit: boolean;
+
   updatedAt: string;
 }
 
@@ -128,6 +131,9 @@ export const DEFAULT_SETTINGS: PanelSettings = {
   maintenanceMessage: "ZK-MC3-PANEL is currently under maintenance. Please check back shortly.",
   loginAlert: true,
 
+  // Off until an administrator opts in, matching JTG's gate.
+  enablePlayit: false,
+
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -167,6 +173,7 @@ export const publicSettings = async () => {
     maintenanceMessage: s.maintenanceMessage,
     billingEnabled: s.billingEnabled,
     currency: s.currency,
+    enablePlayit: s.enablePlayit,
     allowUserServerCreation: s.allowUserServerCreation,
     updatedAt: s.updatedAt,
   };

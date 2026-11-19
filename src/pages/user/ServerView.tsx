@@ -36,6 +36,7 @@ import {
   UserMinus,
   Shield,
   Ban,
+  Globe2,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import {
@@ -54,10 +55,12 @@ import {
 import { StatusPill } from "../../components/StatusPill";
 import { useApi, useServerSocket, useDocumentTitle } from "../../lib/hooks";
 import { useToast } from "../../context/ToastContext";
+import { useSettings } from "../../context/SettingsContext";
 import { api, apiDownload, uploadFile } from "../../lib/api";
 import { formatMb, formatUptime, relativeTime, pct, formatBytes, formatDateTime } from "../../lib/format";
 import { ServerConsole } from "./ServerConsole";
 import { ModrinthManager } from "../../components/ModrinthManager";
+import { PlayitTunnel } from "./PlayitTunnel";
 
 /* ------------------------------------------------------------------ Console */
 const ConsoleTab: React.FC<{ server: any; onStatus: (s: string) => void; onRefresh: () => void }> = (props) => (
@@ -707,11 +710,20 @@ export const ServerView: React.FC = () => {
   const { data: server, loading, reload } = useApi<any>(id ? `/servers/${id}` : null);
   const { data: stats, reload: reloadStats } = useApi<any>(id ? `/servers/${id}/stats` : null);
   const { data: health } = useApi<any>("/system/health");
+  const { settings } = useSettings();
+  // Playit is an operator opt-in; when it is off the tab disappears entirely.
+  const playitEnabled = Boolean(settings.enablePlayit);
   const [tab, setTab] = useState("console");
   const [busy, setBusy] = useState("");
   const [status, setStatus] = useState("");
 
   useDocumentTitle(server ? `${server.name} · ZK-MC3-PANEL` : "Server · ZK-MC3-PANEL");
+
+  // Hooks must run before the early returns below. If tunnels get switched off
+  // while the Tunnel tab is open, fall back to the console rather than a blank pane.
+  useEffect(() => {
+    if (!playitEnabled && tab === "tunnel") setTab("console");
+  }, [playitEnabled, tab]);
 
   useEffect(() => {
     if (status) reload();
@@ -775,6 +787,7 @@ export const ServerView: React.FC = () => {
     { id: "files", label: "File Manager", icon: <FolderTree size={14} /> },
     { id: "plugins", label: "Plugins & Mods", icon: <Puzzle size={14} /> },
     { id: "players", label: "Players", icon: <Users size={14} /> },
+    ...(playitEnabled ? [{ id: "tunnel", label: "Tunnel", icon: <Globe2 size={14} /> }] : []),
     { id: "backups", label: "Backups", icon: <Archive size={14} /> },
     { id: "settings", label: "Settings", icon: <Settings size={14} /> },
   ];
@@ -880,6 +893,7 @@ export const ServerView: React.FC = () => {
         {tab === "files" && <FilesTab server={server} />}
         {tab === "plugins" && <PluginsTab server={server} />}
         {tab === "players" && <PlayersTab server={server} />}
+        {tab === "tunnel" && <PlayitTunnel serverId={server.id} enabled={playitEnabled} />}
         {tab === "backups" && <BackupsTab server={server} />}
         {tab === "settings" && <SettingsTab server={server} onSaved={reload} />}
       </div>

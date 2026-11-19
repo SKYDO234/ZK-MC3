@@ -22,6 +22,8 @@ export interface PublicSettings {
   billingEnabled: boolean;
   currency: string;
   allowUserServerCreation: boolean;
+  /** Playit.gg tunnels — gates the per-server Tunnel tab. */
+  enablePlayit?: boolean;
 }
 
 const FALLBACK: PublicSettings = {
@@ -44,6 +46,7 @@ const FALLBACK: PublicSettings = {
   billingEnabled: true,
   currency: "USD",
   allowUserServerCreation: false,
+  enablePlayit: false,
 };
 
 interface SettingsContextValue {

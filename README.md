@@ -190,7 +190,19 @@ transitions. The whole interface uses a single, consistent design system
   through the server, so a restricted browser network still works.
 - Filters results to builds matching the server software **and** exact version.
 - Installs jars straight into `/plugins` or `/mods`.
-- Falls back to a curated offline catalog when the catalog API is unreachable.
+- Fails with a clear message when Modrinth is unreachable — it never substitutes
+  an invented catalog.
+
+### Playit.gg tunnels
+- Optional per-server **Tunnel** tab that exposes a server's port to the internet
+  with no port forwarding and no router changes.
+- The panel downloads the official playit agent, supervises it as a real child
+  process, and streams its output live.
+- First run prints a **claim link**; open it once to bind the agent to your
+  playit.gg account and the tunnel survives restarts.
+- Start / stop / restart / reset-identity, with the agent's PID and live log on
+  screen. Deleting a server tears its agent down and removes its files.
+- Off by default; enable it in **Panel Settings → Features → Playit.gg tunnels**.
 
 ### Users & access control
 - Four-tier roles: **owner**, **admin**, **user** and per-server access checks.

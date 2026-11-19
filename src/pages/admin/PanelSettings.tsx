@@ -480,6 +480,15 @@ GET    /api/admin/dashboard      Admin metrics`}
                 </div>
                 <Switch checked={form.allowUserServerCreation} onChange={(v) => set("allowUserServerCreation", v)} />
               </div>
+              <div className="mt-2 flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
+                <div>
+                  <p className="text-[0.82rem] font-medium text-zinc-200">Playit.gg tunnels</p>
+                  <p className="text-[0.68rem] text-zinc-500">
+                    Expose a server's port to the internet without port-forwarding. Adds a Tunnel tab to every server.
+                  </p>
+                </div>
+                <Switch checked={Boolean(form.enablePlayit)} onChange={(v) => set("enablePlayit", v)} />
+              </div>
             </Card>
 
             <Card>
