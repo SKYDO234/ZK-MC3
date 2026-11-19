@@ -314,7 +314,9 @@ GET    /api/admin/export               JSON snapshot (admin)
 | `OWNER_PASSWORD` | `admin` | First-run owner password (change after signing in) |
 | `OWNER_EMAIL` | `owner@zk-mc3.local` | First-run owner email |
 | `JAVA_BIN` | auto-detected | Explicit path to a `java` binary |
-| `SEED_DEMO` | `true` | Seed demo users/servers on first boot (`false` for clean) |
+
+A fresh install contains exactly one account (the owner above) and no servers — the
+panel never seeds sample data.
 
 ---
 
@@ -324,7 +326,7 @@ GET    /api/admin/export               JSON snapshot (admin)
 # 1. Create a Node.js app server (no Java needed)
 curl -X POST http://localhost:31120/api/servers \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"Demo App","software":"NODEJS","version":"22","ram":512,"port":26001}'
+  -d '{"name":"My App","software":"NODEJS","version":"22","ram":512,"port":26001}'
 
 # 2. Start it
 curl -X POST http://localhost:31120/api/servers/<id>/start -H "Authorization: Bearer $TOKEN"

@@ -264,9 +264,6 @@ OWNER_EMAIL=owner@zk-mc3.local
 
 # Optional: absolute path to a java binary
 # JAVA_BIN=/usr/lib/jvm/java-21-openjdk-amd64/bin/java
-
-# Demo data seeding (set to false for a clean install)
-SEED_DEMO=true
 EOF
     chmod 600 .env
     ok ".env generated with the default owner credentials"

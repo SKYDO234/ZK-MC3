@@ -32,9 +32,26 @@ import {
   serverDir,
   safeJoin,
 } from "../services/runtime";
-import { SOFTWARE_TYPES, javaVersionFor } from "../services/software";
+import {
+  SOFTWARE_TYPES,
+  javaVersionFor,
+  isProxy,
+  isRuntime,
+  javaMajorFor,
+  softwareSummary,
+  modrinthLoadersFor,
+} from "../services/software";
 import { findPortOwners } from "../services/proc";
-import { installProjectFile, searchCatalog, projectVersions, serverLoader } from "../services/files";
+import {
+  installProjectFile,
+  searchCatalog,
+  projectVersions,
+  projectDetail,
+  listInstalledFiles,
+  removeInstalledFile,
+  resolveModrinthVersion,
+  serverLoader,
+} from "../services/files";
 import { createBackupZip, restoreBackupZip, listBackups } from "../services/backups";
 
 const router = Router();
@@ -232,6 +249,8 @@ router.get("/:id/stats", requireScope("servers.read"), async (req: any, res) => 
   const cpuPercent = server.cpu ? Math.round(state.cpu * 10) / 10 : state.cpu;
   res.json({
     ...state,
+    // JTG-compatible field names so the console can mirror its layout exactly.
+    isRunning: state.running,
     cpu: cpuPercent,
     disk,
     status: state.running ? "online" : server.status === "suspended" ? "suspended" : "offline",
@@ -775,48 +794,232 @@ router.delete("/:id", requireScope("servers.write"), async (req: any, res) => {
   res.json({ success: true });
 });
 
+/** Turns a raw axios/network failure into a message an operator can act on. */
+const modrinthFailure = (err: any): string => {
+  const code = String(err?.code || "");
+  if (["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT", "ECONNRESET"].includes(code)) {
+    return "This node cannot reach Modrinth (api.modrinth.com). Check outbound internet access, then retry.";
+  }
+  if (String(err?.message || "").includes("TLS") || String(err?.message || "").includes("socket disconnected")) {
+    return "The connection to Modrinth was interrupted. Retry in a moment.";
+  }
+  return err?.message || "Could not reach Modrinth.";
+};
+
 // ---------------------------------------------------------------------------
-// Plugin / mod installation (downloads jar into plugins/ or mods/)
+// Plugin / mod manager (Modrinth)
 // ---------------------------------------------------------------------------
-router.post("/:id/plugins/install", requireScope("servers.write"), async (req: any, res) => {
+const catalogTarget = (server: ServerRecord, requested?: string): "plugins" | "mods" => {
+  if (requested === "mods" || requested === "plugins") return requested;
+  return ["FABRIC", "FORGE", "NEOFORGE", "QUILT", "SPIGOT", "PAPER", "PURPUR", "VANILLA"].includes(
+    (server.software || "").toUpperCase()
+  ) && ["FABRIC", "FORGE", "NEOFORGE", "QUILT"].includes((server.software || "").toUpperCase())
+    ? "mods"
+    : "plugins";
+};
+
+/** Rejects proxy/vanilla servers before any Modrinth call is made. */
+const requireModrinthServer = (server: ServerRecord, target: "plugins" | "mods") => {
+  if (isProxy(server.software)) {
+    throw new Error(
+      `${server.software} is a proxy — plugins must be uploaded manually through the File Manager.`
+    );
+  }
+  if (isRuntime(server.software)) {
+    throw new Error(`${server.software} is an application runtime, not a Minecraft server.`);
+  }
+  if (target === "mods" && !["FABRIC", "FORGE", "NEOFORGE", "QUILT"].includes(server.software.toUpperCase())) {
+    throw new Error(`${server.software} does not load Fabric/Forge mods. Use the Plugins tab instead.`);
+  }
+  if (target === "plugins" && ["FABRIC", "FORGE", "NEOFORGE", "QUILT"].includes(server.software.toUpperCase())) {
+    throw new Error(`${server.software} does not load Bukkit plugins. Use the Mods tab instead.`);
+  }
+};
+
+/** Search Modrinth for this server's software and game version. */
+router.get("/:id/modrinth/search", requireScope("servers.read"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = catalogTarget(server, String(req.query.target || ""));
+  try {
+    requireModrinthServer(server, target);
+    const data = await searchCatalog(
+      String(req.query.q || ""),
+      target,
+      String(req.query.version || server.version || ""),
+      Number(req.query.limit) || 20
+    );
+    res.json({
+      ...data,
+      target,
+      loader: serverLoader(server.software),
+      software: server.software,
+      version: server.version,
+    });
+  } catch (err: any) {
+    res.status(502).json({ error: modrinthFailure(err) });
+  }
+});
+
+/** Full detail for one project (used by the install modal). */
+router.get("/:id/modrinth/project/:slug", requireScope("servers.read"), async (req: any, res) => {
   const server = await guardServer(req, res);
   if (!server) return;
   try {
-    const { url, fileName, target = "plugins", versionId } = req.body || {};
-    if (!versionId && (!url || !/^https?:\/\//.test(String(url))))
-      return res.status(400).json({ error: "A valid download URL or version id is required" });
-    const installed = await installProjectFile(server.id, {
-      url: url ? String(url) : undefined,
-      versionId: versionId ? String(versionId) : undefined,
-      target: target === "mods" ? "mods" : "plugins",
-      fileName: fileName ? String(fileName) : undefined,
+    res.json(await projectDetail(String(req.params.slug)));
+  } catch (err: any) {
+    res.status(502).json({ error: modrinthFailure(err) });
+  }
+});
+
+/** Every published build for a project, annotated with compatibility. */
+router.get("/:id/modrinth/versions/:slug", requireScope("servers.read"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = catalogTarget(server, String(req.query.target || ""));
+  try {
+    requireModrinthServer(server, target);
+    const loaders = modrinthLoadersFor(server.software).map((l) => l.toLowerCase());
+    const versions = await projectVersions(String(req.params.slug));
+    res.json({
+      versions: versions.map((v) => ({
+        ...v,
+        compatible:
+          (!loaders.length || v.loaders.some((l) => loaders.includes(l.toLowerCase()))) &&
+          v.gameVersions.includes(String(server.version)),
+      })),
+      software: server.software,
+      version: server.version,
+      loader: serverLoader(server.software),
     });
-    const { fileName: safeName } = installed;
+  } catch (err: any) {
+    res.status(502).json({ error: modrinthFailure(err) });
+  }
+});
+
+/** One-click install: resolves the best compatible build automatically. */
+router.post("/:id/modrinth/install", requireScope("servers.write"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = catalogTarget(server, String(req.body?.target || ""));
+  try {
+    requireModrinthServer(server, target);
+    const { projectId, projectName, projectSlug, versionId, url, fileName } = req.body || {};
+    if (!projectId && !versionId && !url) {
+      return res.status(400).json({ error: "A projectId, versionId or url is required" });
+    }
+    const installed = await installProjectFile(server.id, {
+      projectId: projectId ? String(projectId) : undefined,
+      projectName: projectName ? String(projectName) : undefined,
+      projectSlug: projectSlug ? String(projectSlug) : undefined,
+      versionId: versionId ? String(versionId) : undefined,
+      url: url ? String(url) : undefined,
+      fileName: fileName ? String(fileName) : undefined,
+      target,
+    });
 
     await logActivity({
       type: "server",
       action: "plugin-install",
-      message: `${req.user.username} installed ${safeName} on "${server.name}"`,
+      message: `${req.user.username} installed ${installed.fileName} on "${server.name}"`,
       actorId: req.user.id,
       actorName: req.user.username || "",
       target: server.id,
       ip: clientIp(req),
     });
-    res.json({ success: true, fileName: safeName, size: installed.bytes, folder: installed.folder });
+
+    res.json({
+      success: true,
+      ...installed,
+      message: `${installed.fileName}${
+        installed.versionNumber ? ` (${installed.versionNumber})` : ""
+      } installed into ${installed.folder}/. Restart the server to load it.`,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: modrinthFailure(err) });
+  }
+});
+
+/** Jars present in plugins/ or mods/. */
+router.get("/:id/modrinth/installed", requireScope("servers.read"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = catalogTarget(server, String(req.query.target || ""));
+  try {
+    res.json({ target, items: await listInstalledFiles(server.id, target) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Removes one installed jar. */
+router.delete("/:id/modrinth/installed/:filename", requireScope("servers.write"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = catalogTarget(server, String(req.query.target || ""));
+  try {
+    const removed = await removeInstalledFile(server.id, target, String(req.params.filename));
+    res.json({ success: true, message: `Removed ${removed} from ${target}/. Restart the server to apply.` });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// ---------------------------------------------------------------------------
-// Plugin / mod catalog (Modrinth proxy)
-// ---------------------------------------------------------------------------
+/** Which manager this server has, so the UI can hide the wrong tab. */
+router.get("/:id/modrinth/meta", requireScope("servers.read"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const type = (server.software || "").toUpperCase();
+  res.json({
+    software: server.software,
+    version: server.version,
+    proxy: isProxy(type),
+    runtime: isRuntime(type),
+    supportsPlugins: !isProxy(type) && !isRuntime(type) && !["FABRIC", "FORGE", "NEOFORGE", "QUILT"].includes(type),
+    supportsMods: !isProxy(type) && !isRuntime(type) && ["FABRIC", "FORGE", "NEOFORGE", "QUILT"].includes(type),
+    loader: serverLoader(server.software),
+    loaders: modrinthLoadersFor(server.software),
+    java: javaMajorFor(server.software, server.version),
+  });
+});
+
+// Legacy aliases kept so older console builds keep working.
+router.post("/:id/plugins/install", requireScope("servers.write"), async (req: any, res) => {
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const target = catalogTarget(server, String(req.body?.target || ""));
+  try {
+    requireModrinthServer(server, target);
+    const installed = await installProjectFile(server.id, {
+      projectId: req.body?.projectId ? String(req.body.projectId) : undefined,
+      versionId: req.body?.versionId ? String(req.body.versionId) : undefined,
+      url: req.body?.url ? String(req.body.url) : undefined,
+      fileName: req.body?.fileName ? String(req.body.fileName) : undefined,
+      projectName: req.body?.projectName ? String(req.body.projectName) : undefined,
+      target,
+    });
+    res.json({ success: true, ...installed });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get("/:id/plugins/catalog", requireScope("servers.read"), async (req: any, res) => {
   const server = await guardServer(req, res);
   if (!server) return;
-  const target = String(req.query.target || "plugins") === "mods" ? "mods" : "plugins";
-  const result = await searchCatalog(String(req.query.q || ""), target, String(req.query.version || ""));
-  res.json({ ...result, loader: serverLoader(server.software) });
+  const target = catalogTarget(server, String(req.query.target || ""));
+  try {
+    requireModrinthServer(server, target);
+    const data = await searchCatalog(
+      String(req.query.q || ""),
+      target,
+      String(req.query.version || server.version || ""),
+      Number(req.query.limit) || 20
+    );
+    res.json({ ...data, loader: serverLoader(server.software), target });
+  } catch (err: any) {
+    res.status(502).json({ error: modrinthFailure(err) });
+  }
 });
 
 router.get("/:id/plugins/versions", requireScope("servers.read"), async (req: any, res) => {
@@ -830,15 +1033,20 @@ router.get("/:id/plugins/versions", requireScope("servers.read"), async (req: an
     );
     res.json({ versions });
   } catch (err: any) {
-    res.status(502).json({ error: err?.message || "Could not reach the mod catalog" });
+    res.status(502).json({ error: modrinthFailure(err) });
   }
 });
 
 // ---------------------------------------------------------------------------
-// Port allocation helper for the create-server form
+// Software catalogue for the create-server form
 // ---------------------------------------------------------------------------
 router.get("/meta/software", requireScope("servers.read"), async (_req, res) => {
-  res.json(SOFTWARE_TYPES);
+  res.json(SOFTWARE_TYPES.map((s) => ({ ...s, java: s.java || "" })));
+});
+
+/** Java + Modrinth capability summary for one software/version pair. */
+router.get("/meta/software/:id", requireScope("servers.read"), async (req, res) => {
+  res.json(softwareSummary(String(req.params.id), String(req.query.version || "")));
 });
 
 export default router;

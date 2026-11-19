@@ -15,7 +15,9 @@ import {
   Loader2,
   Sparkles,
 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
+import { CategorizedVersionDropdown } from "../../components/CategorizedVersionDropdown";
 import { Card, CardHeader, Button, Field, Badge, Modal } from "../../components/ui";
 import { useApi, useDocumentTitle } from "../../lib/hooks";
 import { useToast } from "../../context/ToastContext";
@@ -51,6 +53,7 @@ export const CreateServer: React.FC = () => {
     javaVersion: "",
   });
   const [versions, setVersions] = useState<string[]>([]);
+  const [versionError, setVersionError] = useState("");
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<any>(null);
@@ -69,13 +72,18 @@ export const CreateServer: React.FC = () => {
     (async () => {
       if (!form.software) return;
       setLoadingVersions(true);
+      setVersionError("");
       try {
         const data = await api<{ versions: string[] }>("/system/versions", { query: { software: form.software } });
         if (cancelled) return;
         setVersions(data.versions || []);
         setForm((f) => ({ ...f, version: data.versions?.[0] || "" }));
-      } catch {
-        if (!cancelled) setVersions([]);
+      } catch (err: any) {
+        if (cancelled) return;
+        setVersions([]);
+        // A 503 means the node could not reach the software's version API; show
+        // that verbatim instead of an empty dropdown.
+        setVersionError(err?.message || `Could not load ${form.software} versions.`);
       } finally {
         if (!cancelled) setLoadingVersions(false);
       }
@@ -224,24 +232,18 @@ export const CreateServer: React.FC = () => {
                 </select>
               </Field>
               <Field label="Version" required error={errors.version}>
-                <div className="relative">
-                  <select
-                    className="zk-select"
-                    value={form.version}
-                    onChange={(e) => setForm((f) => ({ ...f, version: e.target.value }))}
-                    disabled={loadingVersions}
-                  >
-                    {versions.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                    {versions.length === 0 && <option value="">Loading…</option>}
-                  </select>
-                  {loadingVersions && (
-                    <Loader2 size={13} className="absolute right-8 top-1/2 -translate-y-1/2 animate-spin text-brand-400" />
-                  )}
-                </div>
+                <CategorizedVersionDropdown
+                  value={form.version}
+                  onChange={(v) => setForm((f) => ({ ...f, version: v }))}
+                  versions={versions}
+                  software={form.software}
+                  loading={loadingVersions}
+                />
+                {versionError && (
+                  <p className="mt-1.5 flex items-start gap-1.5 text-[0.66rem] leading-relaxed text-amber-400">
+                    <AlertTriangle size={11} className="mt-0.5 flex-none" /> {versionError}
+                  </p>
+                )}
               </Field>
               {selectedSoftware && (
                 <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-brand-500/20 bg-brand-500/[0.06] px-3.5 py-2.5">
@@ -249,6 +251,7 @@ export const CreateServer: React.FC = () => {
                   <p className="text-[0.72rem] leading-relaxed text-brand-100/70">
                     <span className="font-semibold text-brand-200">{selectedSoftware.label}</span> ·{" "}
                     {selectedSoftware.description}
+                    {(selectedSoftware as any).java ? ` · requires Java ${(selectedSoftware as any).java}` : ""}
                   </p>
                 </div>
               )}

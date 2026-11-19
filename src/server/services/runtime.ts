@@ -13,7 +13,17 @@ import {
 
 export { serverDir };
 import { emitLog, emitStatus, emitStats } from "../events";
-import { downloadServerJar, javaVersionFor } from "./software";
+import {
+  downloadServerJar,
+  javaMajorFor,
+  javaVersionFor,
+  minecraftJavaArgs,
+  jarMirrors,
+  forgeInstallerUrl,
+  isRuntime,
+  isProxy,
+  SOFTWARE_LABEL,
+} from "./software";
 import {
   isProcessAlive,
   processCpuPercent,
@@ -52,8 +62,6 @@ export interface ServerRecord {
   javaVersion?: string;
   startupCommand?: string | null;
   autoRestart?: boolean;
-  /** No JDK on the node: the console runs a simulated Paper server. */
-  simulated?: boolean;
   notes?: string;
   planLabel?: string;
   reattached?: boolean;
@@ -65,21 +73,11 @@ interface ManagedProcess {
   stopping: boolean;
   exitCode: number | null;
   detachedFromPanel?: boolean;
-  /** Emulated Paper console used when the host has no Java runtime. */
-  simulated?: boolean;
-  simulatedTimers?: NodeJS.Timeout[];
 }
 
 
 const procs = new Map<string, ManagedProcess>();
 
-/**
- * Byte counters reported by emulated children over their IPC channel.
- * `ss` can only read counters from sockets that are still open, so the child
- * measures its own traffic — accurate even for short-lived HTTP requests.
- */
-const simulatedNet = new Map<string, { rx: number; tx: number }>();
-const previousNet = new Map<string, { rx: number; tx: number; at: number }>();
 const LOG_LIMIT_BYTES = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -192,6 +190,14 @@ export const resolveJava = async (major: string): Promise<string | null> => {
   for (const candidate of javaCandidates(major)) {
     if (candidate === "java") continue;
     if (await fs.pathExists(candidate)) return candidate;
+  }
+  // Last resort: consult PATH, so a JDK installed outside /usr/lib/jvm works.
+  try {
+    const { execFileSync } = await import("child_process");
+    const found = execFileSync("sh", ["-c", "command -v java"], { encoding: "utf8" }).trim();
+    if (found) return found;
+  } catch {
+    /* no java on PATH */
   }
   return null;
 };
@@ -334,20 +340,33 @@ HTTPServer(("0.0.0.0", port), Handler).serve_forever()
     }
   }
 
+  // A jar without a JVM is useless, so check the runtime *before* spending
+  // network time on a download. This is the message an operator needs.
+  const javaMajor = server.javaVersion || javaVersionFor(software, server.version);
+  const java = await resolveJava(javaMajor);
+  if (!java) {
+    throw new Error(
+      `Java ${javaMajor || "21"} is required for ${SOFTWARE_LABEL(software)} ${server.version} but was not found on this node. ` +
+        `Install it with "sudo bash install.sh" (or apt install openjdk-${javaMajor || 21}-jre-headless), or set JAVA_BIN.`
+    );
+  }
+
+  if (software === "FORGE" || software === "NEOFORGE") {
+    log(`[Panel] Installing ${SOFTWARE_LABEL(software)} ${server.version} ...`);
+    await installForgeServer(server, java, log);
+    return;
+  }
+
   const jarPath = path.join(dir, "server.jar");
   let needsJar = !(await fs.pathExists(jarPath));
   if (!needsJar) {
     const stat = await fs.stat(jarPath);
+    // Paperclip and the Vanilla jar are several MB; anything tiny is a broken
+    // download (an HTML error page saved under a .jar name, for example).
     needsJar = stat.size < 100 * 1024;
   }
   if (needsJar) {
-    const java = await resolveJava(server.javaVersion || javaVersionFor(software, server.version));
-    if (!java) {
-      log(`[Panel] No JDK on this node — skipping the ${software} jar download.`);
-      log("[Panel] The server will start with the emulated console until Java is installed.");
-      return;
-    }
-    log(`[Panel] Installing ${software} ${server.version} ...`);
+    log(`[Panel] Installing ${SOFTWARE_LABEL(software)} ${server.version} ...`);
     await downloadServerJar(software, server.version, jarPath, log);
   }
 };
@@ -372,294 +391,144 @@ export const provisionServerWithLogs = async (server: ServerRecord) => {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-const buildStartArgs = async (server: ServerRecord, allowSimulation = true) => {
+const buildStartArgs = async (server: ServerRecord) => {
   const software = (server.software || "PAPER").toUpperCase();
-  if (software === "NODEJS") return { cmd: "node", args: ["index.js"] };
-  if (software === "PYTHON") return { cmd: "python3", args: ["-u", "main.py"] };
+  if (software === "NODEJS") {
+    const entry = await firstExistingEntry(serverDir(server.id), ["index.js", "app.js", "server.js", "main.js", "bot.js"]);
+    return { cmd: "node", args: [entry || "index.js"] };
+  }
+  if (software === "PYTHON") {
+    const entry = await firstExistingEntry(serverDir(server.id), ["main.py", "app.py", "bot.py", "index.py", "server.py"]);
+    return { cmd: "python3", args: ["-u", entry || "main.py"] };
+  }
 
+  const dir = serverDir(server.id);
   const javaMajor = server.javaVersion || javaVersionFor(software, server.version);
   const java = await resolveJava(javaMajor);
   if (!java) {
-    if (allowSimulation) return null;
     throw new Error(
       `Java ${javaMajor || "21"} was not found on this node. Run "bash install.sh" to install a JDK, or set JAVA_BIN to a valid java binary.`
     );
   }
-  const ram = Math.max(512, Number(server.ram) || 1024);
-  const flags = [
-    `-Xms${ram}M`,
-    `-Xmx${ram}M`,
-    "-XX:+UseG1GC",
-    "-XX:+ParallelRefProcEnabled",
-    "-XX:MaxGCPauseMillis=200",
-    "-XX:+UnlockExperimentalVMOptions",
-    "-XX:+DisableExplicitGC",
-    "-XX:+AlwaysPreTouch",
-    "-XX:G1NewSizePercent=30",
-    "-XX:G1MaxNewSizePercent=40",
-    "-XX:G1HeapRegionSize=8M",
-    "-XX:G1ReservePercent=20",
-    "-XX:G1HeapWastePercent=5",
-    "-XX:G1MixedGCCountTarget=4",
-    "-XX:InitiatingHeapOccupancyPercent=15",
-    "-XX:G1MixedGCLiveThresholdPercent=90",
-    "-XX:G1RSetUpdatingPauseTimePercent=5",
-    "-XX:SurvivorRatio=32",
-    "-XX:+PerfDisableSharedMem",
-    "-XX:MaxTenuringThreshold=1",
-    "-Dusing.aikars.flags=https://mcflags.emc.gs",
-    "-Daikars.new.flags=true",
-    "-Dfile.encoding=UTF-8",
-    "-Dterminal.jline=false",
-    "-Dterminal.ansi=true",
-  ];
-  return { cmd: java, args: [...flags, "-jar", "server.jar", "nogui"] };
+
+  // Forge/NeoForge installers leave a launch script (run.sh) or an args file.
+  if (software === "FORGE" || software === "NEOFORGE") {
+    const script = await firstExistingEntry(dir, ["run.sh"]);
+    if (script) {
+      return { cmd: "sh", args: ["run.sh", "nogui"] };
+    }
+    const argsFile = (await fs.readdir(dir).catch(() => [] as string[])).find((e) => e.endsWith("_args.txt"));
+    if (argsFile) {
+      const raw = await fs.readFile(path.join(dir, argsFile), "utf8");
+      const extra = raw.split(/\s+/).filter(Boolean);
+      return { cmd: java, args: [...minecraftJavaArgs(server.ram), ...extra, "nogui"] };
+    }
+    throw new Error(`The ${SOFTWARE_LABEL(software)} launch files are missing — reinstall the server.`);
+  }
+
+  const custom = String(server.startupCommand || "").trim();
+  if (custom) {
+    const [bin, ...args] = custom.split(/\s+/);
+    return { cmd: bin, args };
+  }
+
+  if (isProxy(software)) {
+    return {
+      cmd: java,
+      args: [
+        `-Xms${Math.max(512, Number(server.ram) || 1024)}M`,
+        `-Xmx${Math.max(512, Number(server.ram) || 1024)}M`,
+        "-Dterminal.jline=false",
+        "-Dterminal.ansi=true",
+        "-jar",
+        "server.jar",
+      ],
+    };
+  }
+
+  return {
+    cmd: java,
+    args: [...minecraftJavaArgs(server.ram), "-jar", "server.jar", "nogui", "--nojline"],
+  };
+};
+
+const firstExistingEntry = async (dir: string, candidates: string[]) => {
+  for (const name of candidates) {
+    if (await fs.pathExists(path.join(dir, name))) return name;
+  }
+  return null;
 };
 
 // ---------------------------------------------------------------------------
-// Emulated Paper console (no JDK on the node)
+// Forge / NeoForge installer support
 // ---------------------------------------------------------------------------
-
-const SIMULATED_SOFTWARE = ["PAPER", "PURPUR", "SPIGOT", "BUKKIT", "VANILLA", "FABRIC", "FORGE", "NEOFORGE", "QUILT", "VELOCITY", "BUNGEECORD", "WATERFALL"];
-const SIMULATED_SUPPORTED = new Set(SIMULATED_SOFTWARE);
-
-export const isSimulatable = (software: string) => SIMULATED_SUPPORTED.has((software || "").toUpperCase());
-
-const timestamp = () => {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-};
-
-const paperLine = (thread: string, level: string, message: string) =>
-  `[${thread}/${level}]: ${message}`;
-
-/** Emits an emulated server line with a fresh timestamp. */
-const saySimulated = async (serverId: string, thread: string, level: string, message: string) => {
-  await writeLog(serverId, `[${timestamp()}] ${paperLine(thread, level, message)}\n`);
-};
-
-const saySimulatedLines = async (serverId: string, lines: { thread: string; level: string; message: string }[]) => {
-  for (const line of lines) await saySimulated(serverId, line.thread, line.level, line.message);
-};
 
 /**
- * Full Paper-style boot sequence used when the host has no Java runtime.
- * The console, lifecycle and command handling behave exactly like a real
- * server so the panel stays demonstrable on machines without a JDK.
+ * Forge and NeoForge publish an *installer* jar. Running it with
+ * `--installServer` produces the libraries plus the launch script, exactly like
+ * the JTG panel's local runtime does. We keep the installed launcher path on the
+ * server record so start/restart can reuse it.
  */
-const simulatedBootLines = (server: ServerRecord) => {
-  const ram = Math.max(512, Number(server.ram) || 1024);
-  const cores = Math.max(1, Number(server.cpu) || 4);
-  const lines: { thread: string; level: string; message: string }[] = [
-    { thread: "main", level: "INFO", message: `Starting org.papermc.paperclip.Main, version ${server.version || "1.21.4"}` },
-    { thread: "main", level: "INFO", message: "System Java Version: 21.0.4 (emulated runtime — no JDK detected on this node)" },
-    { thread: "main", level: "WARN", message: `Running in emulated mode. Install a JDK on the node to execute ${server.software} for real.` },
-    { thread: "main", level: "INFO", message: "Loading libraries, please wait..." },
-    { thread: "Server thread", level: "INFO", message: `Starting minecraft server version ${server.version || "1.21.4"}` },
-    { thread: "Server thread", level: "INFO", message: "Loading properties" },
-    { thread: "Server thread", level: "INFO", message: "Default game type: SURVIVAL" },
-    { thread: "Server thread", level: "INFO", message: "Generating keypair" },
-    { thread: "Server thread", level: "INFO", message: `Starting Minecraft server on ${server.ip === "0.0.0.0" ? "*" : server.ip}:${server.port}` },
-    { thread: "Server thread", level: "INFO", message: "Using epoll channel type" },
-    { thread: "Server thread", level: "INFO", message: "Loading server plugin ExamplePlugin1 v1.0.1" },
-    { thread: "Server thread", level: "INFO", message: "Loading server plugin ExamplePlugin2 v1.0.2" },
-    { thread: "Server thread", level: "INFO", message: "Loading server plugin ExamplePlugin3 v1.0.3" },
-    { thread: "Server thread", level: "INFO", message: 'Preparing level "world"' },
-    { thread: "Server thread", level: "INFO", message: "Preparing start region for dimension minecraft:overworld" },
-    { thread: "Server thread", level: "INFO", message: "Time elapsed: 812 ms" },
-    { thread: "Server thread", level: "INFO", message: "Preparing start region for dimension minecraft:the_nether" },
-    { thread: "Server thread", level: "INFO", message: "Time elapsed: 96 ms" },
-    { thread: "Server thread", level: "INFO", message: "Preparing start region for dimension minecraft:the_end" },
-    { thread: "Server thread", level: "INFO", message: "Time elapsed: 141 ms" },
-    { thread: "Server thread", level: "INFO", message: "Running delayed init tasks" },
-    { thread: "Server thread", level: "INFO", message: 'Done (8.421s)! For help, type "help"' },
-    { thread: "Server thread", level: "INFO", message: `Allocated heap ${ram} MB · ${cores} core(s) · difficulty normal · view distance 10` },
-  ];
-  return lines;
-};
-
-type SimLine = { thread: string; level: string; message: string };
-const info = (message: string): SimLine => ({ thread: "Server thread", level: "INFO", message });
-const warn = (message: string): SimLine => ({ thread: "Server thread", level: "WARN", message });
-
-const simulatedCommandOutput = (server: ServerRecord, raw: string): SimLine[] => {
-  const input = raw.trim();
-  const [name, ...rest] = input.split(/\s+/);
-  const command = (name || "").toLowerCase();
-  const arg = rest.join(" ");
-  switch (command) {
-    case "help":
-      return [
-        info("Simulated command set: help, say, list, tps, mspt, seed, time, weather, gamemode, difficulty, whitelist, op, deop, kick, ban, pardon, plugins, save-all, stop"),
-      ];
-    case "say":
-      return [info(`[Server] ${arg || "Hello!"}`)];
-    case "list":
-      return [info("There are 0 of a max of 20 players online:")];
-    case "tps":
-      return [info("TPS from last 1m, 5m, 15m: 20.0, 20.0, 20.0")];
-    case "mspt":
-      return [info("Server tick times (avg/min/max): 3.42/1.08/11.90 ms")];
-    case "seed":
-      return [info(`Seed: [${-Math.abs(hashSeed(server.name))}, ${hashSeed(server.name)}]`)];
-    case "time":
-      return [info(`The time is ${arg || "1000"}`)];
-    case "weather":
-      return [info(`Set the weather to ${arg || "clear"}`)];
-    case "gamemode":
-      return [info(`Game mode updated: ${arg || "survival"}`)];
-    case "difficulty":
-      return [info(`The difficulty is now ${arg || "normal"}`)];
-    case "op":
-    case "deop":
-    case "whitelist":
-    case "ban":
-    case "pardon":
-    case "kick":
-      return [info(`${command} ${arg}`.trim() + " — noted (emulated)")];
-    case "plugins":
-    case "pl":
-      return [info("Plugins (3): ExamplePlugin1, ExamplePlugin2, ExamplePlugin3")];
-    case "save-all":
-      return [info("Saving the game (this may take a moment!)"), info("Saved the game")];
-    case "stop":
-    case "end":
-      return [];
-    default:
-      return [warn(`Unknown or incomplete command "${input}". Try "help".`)];
+const installForgeServer = async (server: ServerRecord, java: string, onLog: (m: string) => void) => {
+  const dir = serverDir(server.id);
+  const software = server.software.toUpperCase();
+  const installerUrl = await forgeInstallerUrl(software, server.version);
+  if (!installerUrl) {
+    throw new Error(`No ${SOFTWARE_LABEL(software)} installer is published for Minecraft ${server.version}.`);
   }
-};
 
-const hashSeed = (value: string) => {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) | 0;
-  return hash;
-};
-
-const simulatedCommands = {
-  stop: (server: ServerRecord) => ["stop", "end"],
-};
-
-const simulatedRuntimeScript = `
-const http = require("http");
-const port = Number(process.env.SERVER_PORT || 25565);
-const name = process.env.SERVER_NAME || "server";
-const start = Date.now();
-let rx = 0;
-let tx = 0;
-const report = () => { try { process.send && process.send({ type: "net", rx, tx }); } catch (e) {} };
-setInterval(report, 2000).unref();
-const sockState = new WeakMap();
-const server = http.createServer((req, res) => {
-  const sock = req.socket;
-  let state = sockState.get(sock);
-  if (!state) { state = { read: 0, written: 0 }; sockState.set(sock, state); }
-  // socket.bytesRead/bytesWritten include headers, so the dashboards show the
-  // same numbers a real Minecraft socket would move.
-  res.on("finish", () => {
-    const readDelta = sock.bytesRead - state.read;
-    const writeDelta = sock.bytesWritten - state.written;
-    state.read = sock.bytesRead;
-    state.written = sock.bytesWritten;
-    if (readDelta > 0) rx += readDelta;
-    if (writeDelta > 0) tx += writeDelta;
-    report();
-  });
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ panel: "ZK-MC3-PANEL", server: name, emulated: true, uptime: Math.floor((Date.now() - start) / 1000) }));
-});
-server.listen(port, "0.0.0.0", () => {
-  console.log("[emulated] listening on " + port);
-  setInterval(() => console.log("[emulated] heartbeat " + Math.floor((Date.now() - start) / 1000) + "s"), 30000);
-});
-process.on("SIGTERM", () => { console.log("[emulated] shutting down"); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 400); });
-process.on("message", (m) => { if (m === "stop") process.emit("SIGTERM"); });
-`;
-
-const startSimulatedServer = async (server: ServerRecord) => {
-  const serverId = server.id;
-  const child = spawn(
-    process.execPath,
-    ["--max-old-space-size=" + Math.max(128, Math.min(Number(server.ram) || 512, 1024)), "-e", simulatedRuntimeScript],
-    {
-      cwd: serverDir(serverId),
-      detached: true,
-      stdio: ["pipe", "pipe", "pipe", "ipc"],
-      env: { ...serverEnv(server), SERVER_PORT: String(server.port) },
-    }
-  );
-
-  const managed: ManagedProcess = {
-    child,
-    startedAt: Date.now(),
-    stopping: false,
-    exitCode: null,
-    simulated: true,
-    simulatedTimers: [],
-  };
-  procs.set(serverId, managed);
-  forgetNetworkSample(serverId);
-  simulatedNet.set(serverId, { rx: 0, tx: 0 });
-  previousNet.delete(serverId);
-
-  const decoder = new StringDecoder("utf8");
-  const relay = (buf: Buffer) => {
-    const text = decoder.write(buf);
-    if (!text) return;
-    for (const line of text.split(/\r?\n/)) {
-      if (line.trim()) void writeLog(serverId, `[${timestamp()}] [Server thread/INFO]: ${line.replace(/^\[emulated\]\s*/, "")}\n`);
-    }
-  };
-  child.stdout?.on("data", relay);
-  child.stderr?.on("data", relay);
-  child.on("message", (message: any) => {
-    if (message && message.type === "net") {
-      simulatedNet.set(serverId, { rx: Number(message.rx) || 0, tx: Number(message.tx) || 0 });
-    }
-  });
-
-  child.on("exit", async (code) => {
-    if (!procs.has(serverId)) return;
-    procs.delete(serverId);
-    await writeLog(serverId, `[Panel] Emulated process exited with code ${code}.`);
-    await updateServer(serverId, { status: "offline", pid: null, startedAt: null });
-    emitStatus(serverId, "offline");
-  });
-
-  // Boot sequence, staggered so the console streams like a real startup.
-  const boot = simulatedBootLines(server);
-  boot.forEach((line, index) => {
-    const timer = setTimeout(() => void saySimulated(serverId, line.thread, line.level, line.message), 110 + index * 130);
-    managed.simulatedTimers?.push(timer);
-  });
-
-  // Ambient chatter, like a live server ticking along.
-  const chatter = setInterval(() => {
-    if (managed.stopping) return;
-    const roll = Math.random();
-    if (roll > 0.78) {
-      void saySimulated(serverId, "Server thread", "INFO", "Player keepalive broadcast · TPS 20.0");
-    } else if (roll > 0.7) {
-      void saySimulated(serverId, "Craft Scheduler Thread", "INFO", 'Autosave: world written to disk (0.4s)');
-    }
-  }, 15000);
-  managed.simulatedTimers?.push(chatter);
-
-  const finishBoot = setTimeout(() => emitStatus(serverId, "online"), 1200);
-  managed.simulatedTimers?.push(finishBoot);
-
-  return managed;
-};
-
-const stopSimulatedServer = async (managed_: ManagedProcess) => {
-  for (const timer of managed_.simulatedTimers || []) clearTimeout(timer as any);
-  try {
-    managed_.child.stdin?.end();
-    managed_.child.kill("SIGTERM");
-  } catch {
-    /* ignore */
+  // Some Forge builds need the vanilla jar alongside the installer.
+  const vanilla = path.join(dir, "server.jar");
+  if (!(await fs.pathExists(vanilla))) {
+    onLog("[Panel] Downloading the vanilla Minecraft jar required by the installer...");
+    await downloadServerJar("VANILLA", server.version, vanilla, onLog);
   }
+
+  const installer = path.join(dir, "installer.jar");
+  onLog(`[Panel] Downloading ${SOFTWARE_LABEL(software)} ${server.version} installer...`);
+  await downloadServerJar(software, server.version, installer, onLog);
+
+  onLog("[Panel] Running the installer (this can take a few minutes)...");
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(java, ["-jar", "installer.jar", "--installServer"], {
+      cwd: dir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+      reject(new Error("The Forge installer timed out after 10 minutes."));
+    }, 10 * 60 * 1000);
+    const relay = (buf: Buffer) => {
+      for (const line of buf.toString().split(/\r?\n/)) {
+        if (line.trim()) onLog(`[installer] ${line.trim()}`);
+      }
+    };
+    child.stdout?.on("data", relay);
+    child.stderr?.on("data", relay);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`The installer exited with code ${code}.`));
+    });
+  });
+
+  // Find the generated launch script / jar.
+  const entries = await fs.readdir(dir);
+  const script = entries.find((e) => e === "run.sh" || e === "unix_args.txt" || e.endsWith("_args.txt"));
+  const builtJar = entries.find((e) => /^(forge|neoforge|server).*\.jar$/i.test(e) && !e.includes("installer"));
+  await fs.remove(installer).catch(() => {});
+  if (!script && !builtJar) {
+    throw new Error("The installer finished but produced no launch script or server jar.");
+  }
+  return { script: script || null, jar: builtJar || null };
 };
 
 export const startServer = async (serverId: string, triggeredBy = "panel") => {
@@ -711,44 +580,22 @@ export const startServer = async (serverId: string, triggeredBy = "panel") => {
 
   try {
     const software = (server.software || "PAPER").toUpperCase();
-    const isApp = ["NODEJS", "PYTHON"].includes(software);
-    if (!isApp) {
+    const runtimeServer = isRuntime(software);
+    if (!runtimeServer) {
+      // The jar (and, for Forge/NeoForge, the libraries + launch script) is
+      // required before we can start anything. Provision on demand.
       const jarPath = path.join(dir, "server.jar");
       const hasJar = await fs.pathExists(jarPath);
-      const hasJava = Boolean(await resolveJava(server.javaVersion || javaVersionFor(software, server.version)));
-      // With no JDK the jar is useless, so skip the (network-bound) download and
-      // fall through to the emulated console instead of failing the start.
-      if (!hasJar && hasJava) {
-        await writeLog(serverId, `[Panel] Server jar missing — starting installation...`);
+      const forgeReady = await fs.pathExists(path.join(dir, "run.sh"));
+      const needsInstall = software === "FORGE" || software === "NEOFORGE" ? !forgeReady && !hasJar : !hasJar;
+      if (needsInstall) {
+        await writeLog(serverId, `[Panel] ${SOFTWARE_LABEL(software)} ${server.version} is not installed yet — starting installation...`);
         await provisionServerFiles(server, (msg) => void writeLog(serverId, msg));
       }
       await fs.writeFile(path.join(dir, "eula.txt"), "eula=true\n");
     }
 
-    const startCommand = await buildStartArgs(server);
-    if (!startCommand) {
-      await writeLog(
-        serverId,
-        `[Panel] No Java runtime detected — starting the emulated ${server.software} console so the panel stays usable.`
-      );
-      await writeLog(
-        serverId,
-        `[Panel] Install a JDK on this node (sudo bash install.sh) and restart to run the real jar.`
-      );
-      const simulated = await startSimulatedServer(server);
-      await updateServer(serverId, {
-        status: "online",
-        pid: simulated.child.pid || null,
-        startedAt: new Date(simulated.startedAt).toISOString(),
-        reattached: false,
-        simulated: true,
-      });
-      await writeLog(serverId, `[Panel] Emulated server is online (PID ${simulated.child.pid}) — ${server.ram}MB RAM, ${server.cpu} core(s).`);
-      emitStatus(serverId, "online");
-      return true;
-    }
-
-    const { cmd, args } = startCommand;
+    const { cmd, args } = await buildStartArgs(server);
     await writeLog(serverId, `[Panel] Launching ${server.software} ${server.version} with ${server.ram}MB RAM (triggered by ${triggeredBy})`);
 
     const child = spawn(cmd, args, {
@@ -822,7 +669,6 @@ export const startServer = async (serverId: string, triggeredBy = "panel") => {
       pid: child.pid || null,
       startedAt: new Date(managed.startedAt).toISOString(),
       reattached: false,
-      simulated: false,
     });
     emitStatus(serverId, "online");
     await writeLog(serverId, `[Panel] Server is online (PID ${child.pid}).`);
@@ -843,22 +689,6 @@ export const sendCommandToServer = async (serverId: string, command: string) => 
   const clean = String(command || "").replace(/[\r\n]/g, " ").slice(0, 2000);
   if (!clean.trim()) throw new Error("Command cannot be empty");
   await writeLog(serverId, `> ${clean}\n`);
-
-  if (managed.simulated) {
-    const server = await findServer(serverId);
-    if (!server) throw new Error("Server not found");
-    const lower = clean.trim().toLowerCase();
-    if (simulatedCommands.stop(server).includes(lower)) {
-      setTimeout(() => {
-        void stopManaged(serverId, "SIGTERM", 5000);
-      }, 250);
-      return true;
-    }
-    for (const line of simulatedCommandOutput(server, clean)) {
-      await saySimulated(serverId, line.thread, line.level, line.message);
-    }
-    return true;
-  }
 
   if (!managed.child.stdin || !managed.child.stdin.writable) {
     throw new Error("Server is not accepting console input. Start the server first.");
@@ -897,25 +727,6 @@ const stopManaged = async (serverId: string, signal: NodeJS.Signals, gracefulMs:
   managed.stopping = true;
   await updateServer(serverId, { status: "stopping" });
   emitStatus(serverId, "stopping");
-
-  if (managed.simulated) {
-    const software = (server?.software || "PAPER").toUpperCase();
-    const isProxy = ["VELOCITY", "BUNGEECORD", "WATERFALL"].includes(software);
-    await writeLog(serverId, `[Panel] Sending "${isProxy ? "end" : "stop"}" to server console...`);
-    await saySimulated(serverId, "Server thread", "INFO", "Stopping the server");
-    await new Promise((r) => setTimeout(r, 450));
-    await saySimulated(serverId, "Server thread", "INFO", "Saving worlds");
-    await new Promise((r) => setTimeout(r, 400));
-    await saySimulated(serverId, "Server thread", "INFO", "Saving chunks for level 'ServerLevel[world]'/minecraft:overworld");
-    await stopSimulatedServer(managed);
-    procs.delete(serverId);
-    simulatedNet.delete(serverId);
-    previousNet.delete(serverId);
-    await saySimulated(serverId, "Server thread", "INFO", "ThreadedAnvilChunkStorage (world): All dimensions are saved");
-    await updateServer(serverId, { status: "offline", pid: null, startedAt: null });
-    emitStatus(serverId, "offline");
-    return true;
-  }
 
   if (signal === "SIGTERM") {
     const software = (server?.software || "").toUpperCase();
@@ -980,25 +791,10 @@ export const getRuntimeState = async (serverId: string) => {
   if (alive && pid) {
     // Measure the whole tree: a Paper server forks, and `java -jar` children
     // hold both the heap and the sockets.
-    const usage = managed && !managed.simulated ? processTreeUsage(pid) : { cpu: processCpuPercent(pid), ram: readProcRssMb(pid) };
+    const usage = processTreeUsage(pid);
     cpu = Math.round(usage.cpu * 10) / 10;
     ram = Math.round(usage.ram * 10) / 10;
-    const reported = simulatedNet.get(serverId);
-    if (managed?.simulated && reported) {
-      const prev = previousNet.get(serverId);
-      const now = Date.now();
-      let netInRate = 0;
-      let netOutRate = 0;
-      if (prev && now > prev.at) {
-        const seconds = (now - prev.at) / 1000;
-        netInRate = Math.max(0, Math.round((reported.rx - prev.rx) / seconds));
-        netOutRate = Math.max(0, Math.round((reported.tx - prev.tx) / seconds));
-      }
-      previousNet.set(serverId, { ...reported, at: now });
-      net = { netIn: reported.rx, netOut: reported.tx, netInRate, netOutRate };
-    } else {
-      net = await networkRate(serverId, pid, server?.port);
-    }
+    net = await networkRate(serverId, pid, server?.port);
   } else {
     forgetNetworkSample(serverId);
   }
@@ -1006,7 +802,7 @@ export const getRuntimeState = async (serverId: string) => {
   return {
     running,
     managed: Boolean(managed),
-    simulated: Boolean(managed?.simulated || server?.simulated),
+    attached: Boolean(managed),
     pid: alive ? pid : null,
     startedAt: managed ? new Date(managed.startedAt).toISOString() : server?.startedAt || null,
     uptimeSeconds: alive ? (managed ? Math.floor((Date.now() - managed.startedAt) / 1000) : processUptimeSeconds(pid)) : 0,
@@ -1062,20 +858,7 @@ export const recoverRunningProcesses = async () => {
   let recovered = 0;
   for (const server of servers) {
     const alive = Boolean(server.pid && isProcessAlive(server.pid));
-    if (alive && server.simulated) {
-      // Emulated consoles are helpers owned by the panel: an orphan would hold
-      // the game port with no way to stream its console, so retire it.
-      try {
-        if (server.pid) process.kill(-server.pid, "SIGKILL");
-      } catch {
-        try {
-          if (server.pid) process.kill(server.pid, "SIGKILL");
-        } catch {
-          /* already gone */
-        }
-      }
-      await updateServer(server.id, { status: "offline", pid: null, startedAt: null, simulated: false });
-    } else if (alive && !procs.has(server.id)) {
+    if (alive && !procs.has(server.id)) {
       // A real jar survived a panel restart: it keeps running, but its stdio is
       // gone, so it is reported online and can still be stopped or killed.
       await updateServer(server.id, { status: "online", reattached: true });

@@ -32,7 +32,6 @@ export interface PanelSettings {
   apiRateLimit: number;
   apiKeyMaxPerUser: number;
   apiKeyDefaultExpiryDays: number;
-  showDemoCredentials: boolean;
 
   notifyOnCrash: boolean;
   notifyOnLogin: boolean;
@@ -98,7 +97,6 @@ export const DEFAULT_SETTINGS: PanelSettings = {
   apiRateLimit: 120,
   apiKeyMaxPerUser: 10,
   apiKeyDefaultExpiryDays: 0,
-  showDemoCredentials: true,
 
   notifyOnCrash: true,
   notifyOnLogin: true,
@@ -163,7 +161,6 @@ export const publicSettings = async () => {
     language: s.language,
     enableRegistration: s.enableRegistration,
     allowRememberMe: s.allowRememberMe,
-    showDemoCredentials: s.showDemoCredentials,
     passwordMinLength: s.passwordMinLength,
     requireInitialPasswordChange: s.requireInitialPasswordChange,
     maintenanceMode: s.maintenanceMode,
