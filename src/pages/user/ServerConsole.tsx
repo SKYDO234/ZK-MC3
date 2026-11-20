@@ -252,7 +252,7 @@ const Spark: React.FC<{
   return (
     <div className="px-4 py-3.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">{label}</span>
+        <span className="zk-eyebrow">{label}</span>
         <span className="font-mono text-[0.72rem] font-semibold text-zinc-200">{value}</span>
       </div>
       <div className="mt-1.5 h-[46px]">
@@ -542,7 +542,7 @@ export const ServerConsole: React.FC<{
   return (
     <div className="space-y-4">
       {/* ══════════════════════════════════ state rail ═══════════════════════ */}
-      <div className="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent">
+      <div className="relative overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
             {/* breathing state ring */}
@@ -647,9 +647,9 @@ export const ServerConsole: React.FC<{
       {/* ═══════════════════════ terminal + instrument column ═══════════════ */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         {/* ------------------------------------------------------ terminal */}
-        <div className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/70">
+        <div className="flex flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
           {/* toolbar */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-ink-850/80 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-[#08080a] px-3 py-2">
             <TerminalSquare size={13} className="text-brand-500" />
             <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-zinc-400">
               terminal
@@ -733,7 +733,7 @@ export const ServerConsole: React.FC<{
               ref={bodyRef}
               onScroll={onScroll}
               onClick={() => inputRef.current?.focus()}
-              className={`select-text overflow-y-auto overflow-x-hidden bg-[#08080a] px-3.5 py-3 font-mono text-zinc-300 [overflow-wrap:anywhere] ${
+              className={`select-text overflow-y-auto overflow-x-hidden bg-black px-3.5 py-3 font-mono text-zinc-300 [overflow-wrap:anywhere] ${
                 compact ? "text-[11px] leading-[1.45]" : "text-[12px] leading-[1.72]"
               } ${TERMINAL_HEIGHT}`}
             >
@@ -824,10 +824,10 @@ export const ServerConsole: React.FC<{
         {/* --------------------------------------------- instrument column */}
         <div className="flex flex-col gap-4">
           {/* power */}
-          <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/70">
-            <div className="flex items-center gap-2 border-b border-white/[0.06] bg-ink-850/80 px-4 py-2">
+          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+            <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#08080a] px-4 py-2">
               <Power size={12} className="text-zinc-500" />
-              <span className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <span className="zk-eyebrow">
                 power
               </span>
             </div>
@@ -870,10 +870,10 @@ export const ServerConsole: React.FC<{
           </div>
 
           {/* telemetry */}
-          <div className="divide-y divide-white/[0.05] overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/70">
+          <div className="divide-y divide-white/[0.05] overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
             <div className="flex items-center gap-2 bg-ink-850/80 px-4 py-2">
               <Activity size={12} className="text-zinc-500" />
-              <span className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <span className="zk-eyebrow">
                 telemetry
               </span>
               <span className="ml-auto font-mono text-[0.55rem] text-zinc-700">40 samples</span>
@@ -908,14 +908,14 @@ export const ServerConsole: React.FC<{
           </div>
 
           {/* session */}
-          <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/70">
-            <div className="flex items-center gap-2 border-b border-white/[0.06] bg-ink-850/80 px-4 py-2">
+          <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+            <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#08080a] px-4 py-2">
               <Clock size={12} className="text-zinc-500" />
-              <span className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <span className="zk-eyebrow">
                 session
               </span>
             </div>
-            <dl className="divide-y divide-white/[0.04] font-mono text-[0.65rem]">
+            <dl className="divide-y divide-white/[0.045] font-mono text-[0.65rem]">
               {[
                 ["started", stats?.startedAt ? clockTime(stats.startedAt) : "—"],
                 ["uptime", isOnline ? formatUptime(uptimeSeconds) : "—"],

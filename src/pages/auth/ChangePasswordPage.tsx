@@ -70,7 +70,7 @@ export const ChangePasswordPage: React.FC = () => {
       <div className="zk-app-bg" />
       <div className="relative w-full max-w-md">
         <div className="mb-5 flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-400">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/25 bg-amber-500/[0.07] text-amber-400">
             <Lock size={24} />
           </div>
           <h1 className="mt-4 font-display text-xl font-bold text-zinc-50">Secure your panel</h1>

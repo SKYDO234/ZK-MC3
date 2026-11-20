@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 import {
   LayoutDashboard,
@@ -13,9 +13,8 @@ import {
   Settings2,
   Cpu,
   LogOut,
-  ChevronRight,
-  Sparkles,
-  LifeBuoy,
+  Bell,
+  ArrowLeft,
   X,
 } from "lucide-react";
 import { BrandLogo } from "./Brand";
@@ -31,23 +30,45 @@ interface NavItem {
   badge?: string;
 }
 
-const USER_NAV: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={17} />, end: true },
-  { to: "/servers", label: "My Servers", icon: <Server size={17} /> },
-  { to: "/api-keys", label: "API Keys", icon: <KeyRound size={17} /> },
-  { to: "/account", label: "Account", icon: <UserCog size={17} /> },
-];
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
 
-const ADMIN_NAV: NavItem[] = [
-  { to: "/admin", label: "Admin Overview", icon: <ShieldCheck size={17} />, end: true },
-  { to: "/admin/create-server", label: "Create Server", icon: <PlusSquare size={17} /> },
-  { to: "/admin/servers", label: "All Servers", icon: <Server size={17} /> },
-  { to: "/admin/nodes", label: "Nodes", icon: <Boxes size={17} /> },
-  { to: "/admin/users", label: "User Management", icon: <Users size={17} /> },
-  { to: "/admin/api-keys", label: "API Keys", icon: <KeyRound size={17} /> },
-  { to: "/admin/settings", label: "Panel Settings", icon: <Settings2 size={17} /> },
-  { to: "/admin/system", label: "System", icon: <Cpu size={17} /> },
-];
+/* Account-level navigation, visible to everyone. */
+const ACCOUNT_NAV: NavGroup = {
+  label: "Account",
+  items: [
+    { to: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={16} />, end: true },
+    { to: "/servers", label: "My Servers", icon: <Server size={16} /> },
+    { to: "/account", label: "My Profile", icon: <UserCog size={16} /> },
+    { to: "/notifications", label: "Notifications", icon: <Bell size={16} /> },
+    { to: "/api-keys", label: "API Keys", icon: <KeyRound size={16} /> },
+  ],
+};
+
+/* Administration, visible to admins and owners only. */
+const ADMIN_NAV: NavGroup = {
+  label: "Administration",
+  items: [
+    { to: "/admin", label: "Overview", icon: <ShieldCheck size={16} />, end: true },
+    { to: "/admin/users", label: "Users", icon: <Users size={16} /> },
+    { to: "/admin/nodes", label: "Nodes", icon: <Boxes size={16} /> },
+    { to: "/admin/servers", label: "Servers", icon: <Server size={16} /> },
+    { to: "/admin/settings", label: "Panel Settings", icon: <Settings2 size={16} /> },
+    { to: "/admin/api-keys", label: "API Keys", icon: <KeyRound size={16} /> },
+    { to: "/admin/system", label: "System", icon: <Cpu size={16} /> },
+  ],
+};
+
+/* Shortcuts that create things — the reference lists these above navigation. */
+const QUICK_NAV: NavGroup = {
+  label: "Quick actions",
+  items: [
+    { to: "/admin/users?create=1", label: "New User", icon: <UserCog size={16} /> },
+    { to: "/admin/create-server", label: "New Server", icon: <PlusSquare size={16} /> },
+  ],
+};
 
 export const Sidebar: React.FC<{
   open: boolean;
@@ -56,81 +77,91 @@ export const Sidebar: React.FC<{
 }> = ({ open, onClose, onLogout }) => {
   const { user, isAdmin } = useAuth();
   const { settings } = useSettings();
-  const location = useLocation();
 
-  const renderNav = (items: NavItem[]) =>
-    items.map((item) => (
-      <NavLink
-        key={item.to}
-        to={item.to}
-        end={item.end}
-        onClick={onClose}
-        className={({ isActive }) => clsx("zk-nav-item", isActive && "zk-nav-item-active")}
-      >
-        <span className="flex-none opacity-90">{item.icon}</span>
-        <span className="flex-1 truncate">{item.label}</span>
-        {location.pathname === item.to && <ChevronRight size={13} className="flex-none text-brand-400" />}
-      </NavLink>
-    ));
+  const renderGroup = (group: NavGroup) => (
+    <div className="zk-nav-group" key={group.label}>
+      <p className="zk-nav-group-label">{group.label}</p>
+      <div className="space-y-0.5">
+        {group.items.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            onClick={onClose}
+            className={({ isActive }) => clsx("zk-nav-item", isActive && "zk-nav-item-active")}
+          >
+            {({ isActive }) => (
+              <>
+                <span className={clsx("zk-nav-icon flex-none", isActive ? "text-[#0a0a0a]" : "text-zinc-500")}>
+                  {item.icon}
+                </span>
+                <span className="flex-1 truncate">{item.label}</span>
+                {item.badge && (
+                  <span
+                    className={clsx(
+                      "rounded px-1 py-0.5 text-[0.55rem] font-bold",
+                      isActive ? "bg-black/10 text-black/70" : "bg-white/[0.07] text-zinc-400"
+                    )}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <>
       <div
         className={clsx(
-          "fixed inset-0 z-40 bg-black/65 backdrop-blur-sm transition-opacity lg:hidden",
+          "fixed inset-0 z-40 bg-black/70 transition-opacity lg:hidden",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={onClose}
       />
       <aside
         className={clsx(
-          "fixed inset-y-0 left-0 z-50 flex w-[268px] flex-col border-r border-white/[0.06] bg-[#08080a]/95 backdrop-blur-2xl transition-transform duration-300 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col border-r border-white/[0.07] bg-black transition-transform duration-200 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex items-center justify-between px-4 pb-4 pt-5">
-          <BrandLogo size={38} />
-          <button onClick={onClose} className="zk-btn zk-btn-subtle zk-btn-sm px-1.5 lg:hidden">
-            <X size={16} />
+        {/* brand */}
+        <div className="flex h-[58px] flex-none items-center justify-between border-b border-white/[0.07] px-4">
+          <BrandLogo size={30} />
+          <button onClick={onClose} className="zk-btn zk-btn-subtle zk-btn-sm -mr-1 px-1.5 lg:hidden">
+            <X size={15} />
           </button>
         </div>
 
-        <div className="mx-4 mb-4 flex items-center gap-2 rounded-xl border border-brand-500/20 bg-gradient-to-r from-brand-500/12 to-transparent px-3 py-2">
-          <Sparkles size={13} className="text-brand-400" />
-          <p className="text-[0.68rem] font-medium leading-tight text-brand-100/80">
-            {settings.panelTagline || "Powered by ZK-STUDIO"}
-          </p>
-        </div>
-
-        <nav className="no-scrollbar flex-1 space-y-6 overflow-y-auto px-3 pb-4">
-          <div>
-            <p className="mb-2 px-2.5 text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-500">
-              User Panel
-            </p>
-            <div className="space-y-1">{renderNav(USER_NAV)}</div>
-          </div>
+        <nav className="no-scrollbar flex-1 overflow-y-auto px-2.5 py-4">
+          {renderGroup(ACCOUNT_NAV)}
 
           {isAdmin && (
-            <div>
-              <p className="mb-2 px-2.5 flex items-center gap-1.5 text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-500">
-                Administration
-                <span className="rounded bg-brand-500/20 px-1 text-[0.55rem] text-brand-300">ADMIN</span>
-              </p>
-              <div className="space-y-1">{renderNav(ADMIN_NAV)}</div>
-            </div>
+            <>
+              {renderGroup(ADMIN_NAV)}
+              {renderGroup(QUICK_NAV)}
+            </>
           )}
+
+          <div className="zk-nav-group">
+            <p className="zk-nav-group-label">Navigation</p>
+            <NavLink to="/dashboard" onClick={onClose} className="zk-nav-item">
+              <span className="zk-nav-icon flex-none text-zinc-500">
+                <ArrowLeft size={16} />
+              </span>
+              <span className="flex-1 truncate">Back to Panel</span>
+            </NavLink>
+          </div>
         </nav>
 
-        <div className="border-t border-white/[0.06] p-3">
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[0.7rem] text-zinc-500">
-            <LifeBuoy size={13} className="text-brand-400/80" />
-            <span>
-              Panel by <span className="font-semibold text-zinc-300">{settings.companyName}</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.025] p-2.5">
-            <div className="flex h-9 w-9 flex-none items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-[0.7rem] font-bold text-black/80">
+        {/* account footer */}
+        <div className="flex-none border-t border-white/[0.07] p-2.5">
+          <div className="flex items-center gap-2.5 rounded-lg px-1.5 py-1.5">
+            <div className="flex h-8 w-8 flex-none items-center justify-center overflow-hidden rounded-full bg-white/[0.09] text-[0.65rem] font-bold text-zinc-200">
               {user?.avatar ? (
                 <img src={user.avatar} alt="" className="h-full w-full object-cover" />
               ) : (
@@ -138,17 +169,20 @@ export const Sidebar: React.FC<{
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[0.8rem] font-semibold text-zinc-100">{user?.name || user?.username}</p>
-              <p className="truncate text-[0.65rem] text-zinc-500 capitalize">{user?.role}</p>
+              <p className="truncate text-[0.78rem] font-semibold text-zinc-100">{user?.username}</p>
+              <p className="truncate text-[0.62rem] capitalize text-zinc-500">{user?.role}</p>
             </div>
             <button
               onClick={onLogout}
               title="Sign out"
-              className="flex h-8 w-8 flex-none items-center justify-center rounded-lg text-zinc-500 transition hover:bg-red-500/12 hover:text-red-400"
+              className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-zinc-600 transition hover:bg-red-500/10 hover:text-red-400"
             >
-              <LogOut size={15} />
+              <LogOut size={14} />
             </button>
           </div>
+          <p className="mt-1.5 truncate px-1.5 text-[0.56rem] uppercase tracking-[0.12em] text-zinc-700">
+            {settings.panelName}
+          </p>
         </div>
       </aside>
     </>

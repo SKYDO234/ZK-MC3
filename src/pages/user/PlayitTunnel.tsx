@@ -166,7 +166,7 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
   /* ---------------------------------------------------------- gated view */
   if (!enabled) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-ink-900/60 px-6 py-14 text-center">
+      <div className="rounded-xl border border-white/[0.07] bg-[#0a0a0c] px-6 py-14 text-center">
         <ShieldOff size={26} className="mx-auto mb-3 text-zinc-600" />
         <h3 className="font-display text-base font-bold text-zinc-200">Playit tunnels are disabled</h3>
         <p className="mx-auto mt-1.5 max-w-md text-[0.78rem] leading-relaxed text-zinc-500">
@@ -185,10 +185,10 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
       {/* ══════════════════════════════════ status column ═══════════════════ */}
       <div className="space-y-4">
-        <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/70">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] bg-ink-850/80 px-4 py-2.5">
+        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#08080a] px-4 py-2.5">
             <Globe2 size={13} className="text-brand-500" />
-            <span className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            <span className="zk-eyebrow">
               tunnel
             </span>
             {state?.pid && (
@@ -317,7 +317,7 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
 
         {/* claim */}
         {state?.claimUrl && (
-          <div className="relative overflow-hidden rounded-2xl border border-brand-500/30 bg-brand-500/[0.07] p-4">
+          <div className="relative overflow-hidden rounded-xl border border-brand-500/25 bg-brand-500/[0.05] p-4">
             <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-brand-500/20 blur-2xl" />
             <div className="relative">
               <div className="flex items-center gap-1.5 text-[0.68rem] font-bold uppercase tracking-[0.1em] text-brand-300">
@@ -355,7 +355,7 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
         )}
 
         {/* how it works, collapsed by default */}
-        <details className="group rounded-2xl border border-white/[0.07] bg-ink-900/50 px-4 py-3">
+        <details className="group rounded-xl border border-white/[0.07] bg-[#0a0a0c] px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[0.68rem] font-semibold text-zinc-500 transition hover:text-zinc-300">
             <Info size={11} />
             How tunnels work
@@ -380,8 +380,8 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
       </div>
 
       {/* ═══════════════════════════════════ agent log ═══════════════════════ */}
-      <div className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-900/70">
-        <div className="flex items-center gap-2 border-b border-white/[0.06] bg-ink-850/80 px-3 py-2">
+      <div className="flex flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#08080a] px-3 py-2">
           <TerminalSquare size={13} className="text-brand-500" />
           <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-zinc-400">
             agent output
@@ -401,7 +401,7 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
             const el = e.currentTarget;
             autoScroll.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           }}
-          className="h-[420px] overflow-y-auto bg-[#08080a] px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] xl:h-[560px]"
+          className="h-[420px] overflow-y-auto bg-black px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] xl:h-[560px]"
         >
           {fetchError && (
             <p className="mb-1 flex items-start gap-1.5 text-rose-400">
