@@ -229,6 +229,7 @@ transitions. The whole interface uses a single, consistent design system
 - Capacity (cores, RAM, disk) is adopted from the agent on first contact, so
   the value shown is the machine's real hardware, not a guess.
 - Agent tokens can be rotated in place from the node card.
+- Full install guide, firewall rules and a failure-message table: [`agent/README.md`](agent/README.md).
 
 ### Panel settings
 Eight organised tabs — **Branding, Authentication, Email/SMTP, API, Notifications,

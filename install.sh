@@ -420,14 +420,37 @@ do_agent() {
   install_node
   fetch_source
   cd "$INSTALL_DIR" || exit 1
+  # fetch_source may have cloned as root; make the tree readable/writable by
+  # whoever runs the agent so `node agent/agent.cjs` can read it and log.
+  run_root chmod -R a+rX "$INSTALL_DIR/agent" 2>/dev/null || true
+  mkdir -p logs 2>/dev/null || true
+  if [ ! -w logs ]; then
+    LOG_DIR="${HOME:-/tmp}/.zk-mc3-agent"
+    mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
+    warn "Cannot write ${INSTALL_DIR}/logs — logging to ${LOG_DIR}/agent.log"
+  else
+    LOG_DIR="logs"
+  fi
+  AGENT_LOG="${LOG_DIR}/agent.log"
 
+  # The token must be the one the panel generated for this node, otherwise the
+  # agent answers every health poll with 401 and the node looks offline forever.
+  # AGENT_PORT must match the port typed into the panel's Add-node sheet.
   local token="${ZK_PANEL_TOKEN:-}"
+  local generated=0
   if [ -z "$token" ]; then
     token=$(openssl rand -hex 24 2>/dev/null || echo "change-me-$(date +%s)")
+    generated=1
   fi
 
+  # A previous run holds the port and would make the new one fail to bind.
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete "$PM2_AGENT" >/dev/null 2>&1 || true
+  fi
+  pkill -f "agent/agent.cjs" >/dev/null 2>&1 || true
+  sleep 1
+
+  if command -v pm2 >/dev/null 2>&1; then
     PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
       pm2 start agent/agent.cjs --name "$PM2_AGENT" --update-env >/dev/null 2>&1
     pm2 save >/dev/null 2>&1 || true
@@ -438,22 +461,40 @@ do_agent() {
       warn "Agent is not listening on ${AGENT_PORT} — check 'pm2 logs ${PM2_AGENT}'"
     fi
   else
-    (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" node agent/agent.cjs > logs/agent.log 2>&1 < /dev/null &)
+    (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
+      node agent/agent.cjs > "$AGENT_LOG" 2>&1 < /dev/null &)
     sleep 2
     if port_is_listening "$AGENT_PORT"; then
       ok "Agent started on port ${AGENT_PORT}"
     else
-      fail "Agent did not start — check logs/agent.log"
+      fail "Agent did not start — check ${AGENT_LOG}"
     fi
   fi
 
+  # Prove the agent is really answering, not just holding the socket.
+  local probe
+  probe=$(curl -fsS -m 3 "http://127.0.0.1:${AGENT_PORT}/ping" 2>/dev/null || true)
+  if printf '%s' "$probe" | grep -q '"pong":true'; then
+    ok "Agent responded to /ping"
+  else
+    warn "Agent is bound to ${AGENT_PORT} but did not answer /ping"
+  fi
+
   say ""
-  say "   ${GRAY}Register this node in the panel:${NC}"
-  say "     ${WHITE}IP${NC}     $(detect_ip)"
-  say "     ${WHITE}Port${NC}   ${AGENT_PORT}"
-  say "     ${WHITE}Token${NC}  ${token}"
+  say "   ${GRAY}Now add this machine in the panel:${NC}"
+  say "     ${WHITE}1.${NC} Admin → Nodes → Add node"
+  say "     ${WHITE}2.${NC} IP       ${WHITE}$(detect_ip)${NC}"
+  say "     ${WHITE}3.${NC} Port     ${WHITE}${AGENT_PORT}${NC}"
+  say "     ${WHITE}4.${NC} Token    ${WHITE}${token}${NC}"
+  say "     ${WHITE}5.${NC} Press ${WHITE}Test connection${NC} → ${WHITE}Add node${NC}"
   say ""
-  warn "Store the token securely — it authenticates the node against the panel."
+  if [ "$generated" = "1" ]; then
+    warn "This token was generated here. Paste it into the panel, or better:"
+    warn "copy the command from the panel's Add-node sheet, which already contains"
+    warn "the right token —  ZK_PANEL_TOKEN=<token> AGENT_PORT=${AGENT_PORT} bash install.sh --agent"
+  fi
+  say "   ${GRAY}Firewall:${NC} allow TCP ${AGENT_PORT} from the panel's IP."
+  say "   ${GRAY}Logs:${NC}     pm2 logs ${PM2_AGENT}   (or ${AGENT_LOG})"
 }
 
 do_createuser() {
@@ -550,8 +591,16 @@ menu() {
   done
 }
 
+# Accept both `install.sh agent` and the documented `install.sh --agent` form,
+# plus -h/--help. Flags used to fall through to "Unknown action", so the exact
+# command the panel hands out was rejected.
 ACTION="${1:-menu}"
+ACTION="${ACTION#--}"
 case "$ACTION" in
+  -h|help|-help)
+    sed -n '6,15p' "$0" | sed 's/^#  \{0,1\}//'
+    exit 0
+    ;;
   install) do_install ;;
   update) do_update ;;
   agent) do_agent ;;

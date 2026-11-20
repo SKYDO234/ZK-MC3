@@ -57,11 +57,14 @@ type Probe = {
   processes?: any[];
 };
 
+/** The agent port the installer uses (`AGENT_PORT`, default 6768). */
+const DEFAULT_AGENT_PORT = 6768;
+
 const emptyForm = {
   name: "",
   hostname: "",
   ip: "",
-  port: 31120,
+  port: DEFAULT_AGENT_PORT,
   cpuCores: "",
   memoryMb: "",
   diskMb: "",
@@ -542,13 +545,15 @@ export const NodesPage: React.FC = () => {
                   </Button>
                 </div>
                 <p className="text-[0.62rem] leading-relaxed text-zinc-600">
-                  The token is shown once per copy and can be rotated later from the node card. The agent needs port{" "}
-                  <span className="font-mono text-zinc-400">{form.port}</span> reachable from this panel.
+                  Run this on the node itself, then press <span className="text-zinc-400">Re-check status</span>. The
+                  agent must accept TCP <span className="font-mono text-zinc-400">{form.port}</span> from this panel's
+                  IP — open it in the node's firewall. The token can be rotated later from the node card.
                 </p>
               </div>
             ) : (
               <p className="text-[0.68rem] leading-relaxed text-zinc-500">
-                Test the connection first — then the exact install command with this node's token appears here.
+                Add the node to reserve its token, then run the generated command on that machine. The sheet fills in
+                the exact token and port — nothing to type by hand.
               </p>
             )}
           </Step>
@@ -675,9 +680,9 @@ export const NodesPage: React.FC = () => {
                     <pre className="zk-console max-h-[150px] overflow-auto !text-[0.6rem] leading-relaxed">
 {`# On the node, as root:
 curl -fsSL https://raw.githubusercontent.com/SKYDO234/ZK-MC3/main/install.sh -o install.sh
-sudo bash install.sh --agent
+sudo ZK_PANEL_TOKEN=<token> AGENT_PORT=${detail.port} bash install.sh --agent
 
-# or run the agent directly:
+# or, if the repository is already on that host:
 ZK_PANEL_TOKEN=<token> PORT=${detail.port} node agent/agent.cjs`}
                     </pre>
                   </>
@@ -693,9 +698,10 @@ ZK_PANEL_TOKEN=<token> PORT=${detail.port} node agent/agent.cjs`}
 
 /** One copy-paste block that both installs and starts the agent. */
 const installCommand = (token: string, ip: string, port: number | string) =>
-  `# On ${ip} as root:
+  `# On ${ip}, as root:
 curl -fsSL https://raw.githubusercontent.com/SKYDO234/ZK-MC3/main/install.sh -o install.sh
-sudo bash install.sh --agent
+sudo ZK_PANEL_TOKEN=${token || "<token>"} AGENT_PORT=${port} bash install.sh --agent`;
 
-# then start the agent (token for this node):
-ZK_PANEL_TOKEN=${token || "<token>"} PORT=${port} node agent/agent.cjs`;
+/** The same thing, for a host that already has the repository checked out. */
+const directCommand = (token: string, port: number | string) =>
+  `ZK_PANEL_TOKEN=${token || "<token>"} PORT=${port} node agent/agent.cjs`;
