@@ -5,151 +5,66 @@ import {
   Cpu,
   MemoryStick,
   HardDrive,
-  Server,
   Wifi,
   WifiOff,
   Trash2,
-  Pencil,
   RefreshCw,
-  MapPin,
   Activity,
   Copy,
-  Network,
   AlertTriangle,
   Check,
   X,
-  Loader2,
   TerminalSquare,
   KeyRound,
+  Download,
   PlugZap,
   ShieldCheck,
-  ChevronRight,
-  ExternalLink,
+  Server,
+  DownloadCloud,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
-import {
-  Card,
-  CardHeader,
-  Button,
-  Badge,
-  Field,
-  Modal,
-  PageSkeleton,
-  Progress,
-  StatCard,
-  EmptyState,
-  Tabs,
-} from "../../components/ui";
+import { Card, CardHeader, Button, Badge, Field, Modal, PageSkeleton, Progress, StatCard, EmptyState } from "../../components/ui";
 import { useApi, useDocumentTitle } from "../../lib/hooks";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
-import { copyToClipboard, formatMb, formatUptime, relativeTime } from "../../lib/format";
+import { copyToClipboard, formatMb, relativeTime } from "../../lib/format";
 
 /* --------------------------------------------------------------- helpers */
 
-type Probe = {
-  reachable: boolean;
-  authenticated: boolean;
-  message: string;
-  latencyMs: number | null;
-  system?: any;
-  java?: any;
-  processes?: any[];
-  /** What the agent says its own reachable address is. */
-  publicAddress?: AgentAddress | null;
-};
+const DAEMON_ZIP = "/downloads/zkdaemon.zip";
 
-type AgentAddress = {
-  host: string;
-  port: number;
-  protocol: string;
-  localIp?: string;
-  publicIp?: string | null;
-  codespace?: boolean;
-  portForwardUrl?: string | null;
-  source?: string;
-};
+/**
+ * Node status is decided by the socket, not by a stored flag: a daemon that
+ * dropped reads as offline even if its last write said otherwise.
+ */
+const isOnline = (node: any) => node?.id === "local" || Boolean(node?.connected);
 
-/** The agent port the installer uses (`AGENT_PORT`, default 6768). */
-const DEFAULT_AGENT_PORT = 6768;
-
-const emptyForm = {
-  name: "",
-  hostname: "",
-  ip: "",
-  port: DEFAULT_AGENT_PORT,
-  protocol: "http" as "http" | "https",
-  cpuCores: "",
-  memoryMb: "",
-  diskMb: "",
-  location: "",
-  description: "",
-};
-
-/** The one-line installer, published with the panel itself. */
-const INSTALLER_URL = `${window.location.origin}/install-agent.sh`;
-
-
-/** A three-step progress row used inside the setup sheet. */
-const Step: React.FC<{
-  index: number;
-  title: string;
-  done?: boolean;
-  active?: boolean;
-  children?: React.ReactNode;
-}> = ({ index, title, done, active, children }) => (
-  <div className="flex gap-3">
-    <div className="flex flex-col items-center">
-      <span
-        className={
-          "flex h-6 w-6 flex-none items-center justify-center rounded-full border text-[0.6rem] font-bold " +
-          (done
-            ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-300"
-            : active
-            ? "border-white/40 bg-white/10 text-white"
-            : "border-white/10 bg-white/[0.03] text-zinc-600")
-        }
-      >
-        {done ? <Check size={11} /> : index}
-      </span>
-      <span className="mt-1 w-px flex-1 bg-white/[0.08]" />
+const Meter: React.FC<{ label: string; icon: React.ReactNode; value: number; max: number; unit: string }> = ({
+  label,
+  icon,
+  value,
+  max,
+  unit,
+}) => {
+  const pct = max ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  const tone = pct > 90 ? "danger" : pct > 70 ? "warn" : "brand";
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[0.55rem] uppercase tracking-[0.14em] text-zinc-600">
+          {icon} {label}
+        </span>
+        <span className="font-mono text-[0.62rem] text-zinc-400">
+          {max ? `${formatMb(value)} / ${formatMb(max)}` : "—"}
+        </span>
+      </div>
+      <div className="mt-1">
+        <Progress value={pct} tone={tone} />
+      </div>
+      <p className="mt-0.5 text-right font-mono text-[0.55rem] text-zinc-600">{max ? `${pct}%` : unit}</p>
     </div>
-    <div className="min-w-0 flex-1 pb-4">
-      <p className={"text-[0.78rem] font-medium " + (done || active ? "text-zinc-100" : "text-zinc-500")}>{title}</p>
-      {children && <div className="mt-2">{children}</div>}
-    </div>
-  </div>
-);
-
-const ProbeResult: React.FC<{ probe: Probe }> = ({ probe }) => (
-  <div
-    className={
-      "flex items-start gap-2 rounded-lg border px-3 py-2 text-[0.7rem] leading-relaxed " +
-      (probe.authenticated
-        ? "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-200"
-        : probe.reachable
-        ? "border-amber-500/25 bg-amber-500/[0.07] text-amber-200"
-        : "border-rose-500/25 bg-rose-500/[0.07] text-rose-200")
-    }
-  >
-    {probe.authenticated ? (
-      <Check size={13} className="mt-px flex-none" />
-    ) : probe.reachable ? (
-      <AlertTriangle size={13} className="mt-px flex-none" />
-    ) : (
-      <X size={13} className="mt-px flex-none" />
-    )}
-    <div className="min-w-0">
-      <p className="font-medium">{probe.message}</p>
-      {probe.authenticated && probe.system && (
-        <p className="mt-0.5 font-mono text-[0.62rem] text-emerald-300/70">
-          {probe.system.hostname} · {probe.system.cpuCores} cores · {formatMb(probe.system.memoryTotalMb)} RAM ·{" "}
-          {probe.latencyMs} ms
-        </p>
-      )}
-    </div>
-  </div>
-);
+  );
+};
 
 /* ------------------------------------------------------------------- page */
 
@@ -157,153 +72,95 @@ export const NodesPage: React.FC = () => {
   useDocumentTitle("Nodes · ZK-MC3-PANEL");
   const { success, error, confirm } = useToast();
   const { data, loading, reload } = useApi<any[]>("/nodes");
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [probe, setProbe] = useState<Probe | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ ...emptyForm });
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  const [agentToken, setAgentToken] = useState("");
-  const [detected, setDetected] = useState<AgentAddress | null>(null);
-  const [touchedIp, setTouchedIp] = useState(false);
-  const [busy, setBusy] = useState("");
-  const [detail, setDetail] = useState<any | null>(null);
-  const [detailTab, setDetailTab] = useState("overview");
-
   const nodes = data || [];
 
-  /**
-   * The base URL a *remote* machine should use to reach this panel. Derived
-   * from the app's own origin by default, but editable, because a panel on
-   * localhost cannot hand a public URL to a VPS.
-   */
-  const [panelBase, setPanelBase] = useState(
-    () => localStorage.getItem("zk.panelBase") || window.location.origin
-  );
-  const updatePanelBase = (value: string) => {
-    setPanelBase(value);
-    localStorage.setItem("zk.panelBase", value);
-  };
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", location: "" });
+  const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState<any | null>(null);
+  const [detail, setDetail] = useState<any | null>(null);
+  const [busy, setBusy] = useState("");
+  const [pinging, setPinging] = useState("");
 
+  // Keep the detail sheet and the freshly created node in sync with polling.
   useEffect(() => {
-    // Keep the open detail sheet in sync with the latest poll.
     if (!detail) return;
     const fresh = nodes.find((n) => n.id === detail.id);
     if (fresh) setDetail(fresh);
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openWizard = () => {
-    setForm({ ...emptyForm });
-    setProbe(null);
-    setCreatedId(null);
-    setAgentToken("");
-    setDetected(null);
-    setTouchedIp(false);
-    setIsWaiting(false);
-    setWizardOpen(true);
-  };
-
-  const set = (key: string, value: any) => setForm((f) => ({ ...f, [key]: value }));
-
-  /** The node we just created, as the latest poll sees it. */
-  const live = createdId ? nodes.find((n) => n.id === createdId) : null;
-  const [isWaiting, setIsWaiting] = useState(false);
-
-  // While the sheet is open and the node has not checked in, look again sooner
-  // than the global poll — this is the moment the operator is watching.
   useEffect(() => {
-    if (!isWaiting || !createdId || live?.status === "online") return;
-    const timer = setInterval(async () => {
-      await reload();
-      const fresh = await api<any[]>("/nodes").catch(() => null);
-      if (fresh?.find((n) => n.id === createdId)?.status === "online") {
-        setIsWaiting(false);
-        success("Node connected", "The agent called in — it is online now.");
-      }
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [isWaiting, createdId, live?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const testConnection = async () => {
-    if (!form.ip.trim()) return error("Enter the node's IP or hostname first");
-    setTesting(true);
-    setProbe(null);
-    try {
-      const result = await api<{ ok: boolean; probe: Probe }>("/nodes/validate", {
-        method: "POST",
-        body: { ...form, token: agentToken },
-      });
-      setProbe(result.probe);
-      if (result.probe.publicAddress?.host) {
-        const address = result.probe.publicAddress;
-        setDetected(address);
-        // Never clobber an address the operator typed deliberately.
-        if (!touchedIp) {
-          setForm((f) => ({
-            ...f,
-            ip: address.host,
-            port: address.port || f.port,
-            protocol: address.protocol === "https" ? "https" : "http",
-          }));
-        }
-      }
-    } catch (err: any) {
-      error("Test failed", err.message);
-    } finally {
-      setTesting(false);
+    if (!created) return;
+    const fresh = nodes.find((n) => n.id === created.id);
+    if (fresh && fresh.status === "online" && created.status !== "online") {
+      success("Node connected", `${fresh.name} is online — ${fresh.hostname || fresh.ip}.`);
     }
+    if (fresh) setCreated(fresh);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openWizard = () => {
+    setForm({ name: "", location: "" });
+    setCreated(null);
+    setOpen(true);
   };
 
-  const createAndInstall = async () => {
+  const create = async () => {
     if (!form.name.trim()) return error("Give the node a name");
     setSaving(true);
     try {
-      const node = await api<any>("/nodes", {
-        method: "POST",
-        body: {
-          ...form,
-          // The address is discovered by the agent; until then it is a
-          // placeholder that is corrected the moment the node checks in.
-          ip: form.ip.trim(),
-          port: form.port || DEFAULT_AGENT_PORT,
-        },
-      });
-      setCreatedId(node.id);
-      setDetail(null);
-      const issued = await api<{ token: string }>(`/nodes/${node.id}/token`);
-      setAgentToken(issued.token);
-      await copyToClipboard(installCommand(issued.token, panelBase)).catch(() => {});
-      success("Node reserved", "Paste the command on that machine — it connects itself.");
+      const node = await api<any>("/nodes", { method: "POST", body: form });
+      setCreated(node);
+      await copyToClipboard(node.installCommand).catch(() => {});
+      success("Node added", "The install command is on your clipboard.");
       reload();
     } catch (err: any) {
-      error("Could not add node", err.message);
+      error("Could not add the node", err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const testNode = async (node: any) => {
-    setBusy(node.id);
+  const ping = async (node: any) => {
+    setPinging(node.id);
     try {
-      const result = await api<{ ok: boolean; probe: Probe }>(`/nodes/${node.id}/test`, { method: "POST" });
-      if (result.ok) success(`${node.name} is online`, result.probe.message);
-      else error(`${node.name} is not reachable`, result.probe.message);
+      const result = await api<{ ok: boolean; latencyMs: number }>(`/nodes/${node.id}/ping`, { method: "POST" });
+      success(`${node.name} answered`, `${result.latencyMs} ms round-trip to the daemon.`);
+    } catch (err: any) {
+      error(`${node.name} did not answer`, err.message);
+    } finally {
+      setPinging("");
+      reload();
+    }
+  };
+
+  const rotate = async (node: any) => {
+    const ok = await confirm({
+      title: "Rotate this node's token?",
+      message:
+        "The daemon on that machine keeps the old token and will be locked out until you restart it with the new one.",
+      danger: true,
+      confirmLabel: "Rotate token",
+    });
+    if (!ok) return;
+    try {
+      const result = await api<{ installCommand: string }>(`/nodes/${node.id}/token/rotate`, { method: "POST" });
+      await copyToClipboard(result.installCommand).catch(() => {});
+      success("Token rotated", "The new command is on your clipboard.");
       reload();
     } catch (err: any) {
-      error("Test failed", err.message);
-    } finally {
-      setBusy("");
+      error("Rotate failed", err.message);
     }
   };
 
   const remove = async (node: any) => {
     const ok = await confirm({
       title: `Remove "${node.name}"?`,
-      message: "Servers assigned to this node must be moved or deleted first.",
+      message: "Servers assigned to it must be moved or deleted first. The daemon on that machine can be stopped.",
       danger: true,
       confirmLabel: "Remove node",
     });
     if (!ok) return;
+    setBusy(node.id);
     try {
       await api(`/nodes/${node.id}`, { method: "DELETE" });
       success("Node removed");
@@ -311,25 +168,8 @@ export const NodesPage: React.FC = () => {
       reload();
     } catch (err: any) {
       error("Remove failed", err.message);
-    }
-  };
-
-  const rotate = async (node: any) => {
-    const ok = await confirm({
-      title: "Rotate the agent token?",
-      message: "The running agent keeps its old token and will go offline until you restart it with the new one.",
-      danger: true,
-      confirmLabel: "Rotate token",
-    });
-    if (!ok) return;
-    try {
-      const result = await api<{ token: string }>(`/nodes/${node.id}/token/rotate`, { method: "POST" });
-      setAgentToken(result.token);
-      await copyToClipboard(installCommand(result.token, panelBase));
-      success("Token rotated", "The new token is shown above and its command is on your clipboard.");
-      reload();
-    } catch (err: any) {
-      error("Rotate failed", err.message);
+    } finally {
+      setBusy("");
     }
   };
 
@@ -337,526 +177,382 @@ export const NodesPage: React.FC = () => {
     () =>
       nodes.reduce(
         (acc, n) => ({
-          cpu: acc.cpu + (n.capacity?.cpuCores || 0),
-          ram: acc.ram + (n.capacity?.memoryMb || 0),
-          disk: acc.disk + (n.capacity?.diskMb || 0),
           servers: acc.servers + (n.serverCount || 0),
-          online: acc.online + (n.status === "online" ? 1 : 0),
+          online: acc.online + (isOnline(n) ? 1 : 0),
+          cores: acc.cores + (n.capacity?.cpuCores || 0),
+          ram: acc.ram + (n.capacity?.memoryMb || 0),
         }),
-        { cpu: 0, ram: 0, disk: 0, servers: 0, online: 0 }
+        { servers: 0, online: 0, cores: 0, ram: 0 }
       ),
     [nodes]
   );
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !data) return <PageSkeleton />;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
-        icon={<Boxes size={20} />}
         title="Nodes"
-        subtitle="Machines that run your game servers. Add one with the guided setup — it tests the connection as you go."
+        subtitle="Machines that run your game servers. Each one runs a small daemon that connects out to this panel — no ports, no firewall rules."
+        icon={<Boxes size={20} />}
         actions={
           <>
-            <Button size="sm" icon={<RefreshCw size={14} />} onClick={reload}>
+            <Button icon={<RefreshCw size={14} />} onClick={reload}>
               Refresh
             </Button>
-            <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openWizard}>
+            <Button variant="primary" icon={<Plus size={14} />} onClick={openWizard}>
               Add node
             </Button>
           </>
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Nodes"
-          value={`${totals.online}/${nodes.length}`}
-          icon={<Boxes size={16} />}
-          hint="online / total"
-          accent
-        />
-        <StatCard label="Total cores" value={totals.cpu} icon={<Cpu size={16} />} />
-        <StatCard label="Total memory" value={formatMb(totals.ram)} icon={<MemoryStick size={16} />} />
-        <StatCard label="Servers deployed" value={totals.servers} icon={<Server size={16} />} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Nodes online" value={`${totals.online}/${nodes.length}`} icon={<Wifi size={14} />} />
+        <StatCard label="Servers hosted" value={totals.servers} icon={<Server size={14} />} />
+        <StatCard label="Total cores" value={totals.cores || "—"} icon={<Cpu size={14} />} />
+        <StatCard label="Total memory" value={totals.ram ? formatMb(totals.ram) : "—"} icon={<MemoryStick size={14} />} />
       </div>
 
-      {nodes.length === 0 ? (
-        <EmptyState
-          icon={<Boxes size={22} />}
-          title="No nodes registered"
-          message="Add your first remote node to scale beyond this machine."
-          action={
-            <Button variant="primary" icon={<Plus size={14} />} onClick={openWizard}>
-              Add node
-            </Button>
-          }
-        />
-      ) : (
-        <div className="grid gap-3 xl:grid-cols-2">
-          {nodes.map((node) => {
-            const memPct = node.usage?.memoryPercent || 0;
-            const diskPct = node.usage?.diskPercent || 0;
-            const online = node.status === "online";
-            const isLocal = node.id === "local";
-            return (
-              <Card key={node.id} hover className="!p-0">
-                <div className="flex flex-wrap items-start justify-between gap-3 p-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div
+      <div className="grid gap-4 lg:grid-cols-2">
+        {nodes.map((node) => {
+          const online = isOnline(node);
+          const local = node.id === "local";
+          return (
+            <Card key={node.id} className="relative overflow-hidden">
+              <div className="flex items-start justify-between gap-3 px-4 pt-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
                       className={
-                        "relative flex h-10 w-10 flex-none items-center justify-center rounded-xl border " +
-                        (online
-                          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400"
-                          : "border-white/10 bg-white/[0.03] text-zinc-500")
+                        "h-1.5 w-1.5 flex-none rounded-full " +
+                        (online ? "bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/60" : "bg-zinc-600")
                       }
-                    >
-                      {online ? <Wifi size={17} /> : <WifiOff size={17} />}
-                      {online && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-[#0a0a0c]" />}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-[0.92rem] font-semibold text-zinc-100">{node.name}</h3>
-                        <Badge tone={isLocal ? "brand" : online ? "online" : "offline"} dot>
-                          {isLocal ? "built-in" : node.status}
-                        </Badge>
-                      </div>
-                      <p className="mt-0.5 truncate font-mono text-[0.68rem] text-zinc-500">
-                        {node.ip}:{node.port}
-                        {node.hostname ? ` · ${node.hostname}` : ""}
-                      </p>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[0.64rem] text-zinc-600">
-                        <span className="flex items-center gap-1">
-                          <MapPin size={10} /> {node.location || "Unassigned"}
-                        </span>
-                        <span>·</span>
-                        <span>{node.serverCount} servers</span>
-                        {node.hostInfo?.cpuModel && (
-                          <>
-                            <span>·</span>
-                            <span className="truncate">{node.hostInfo.cpuModel}</span>
-                          </>
-                        )}
-                      </p>
-                    </div>
+                    />
+                    <h3 className="truncate text-sm font-medium text-zinc-100">{node.name}</h3>
+                    {local && <Badge tone="info">built-in</Badge>}
                   </div>
-
-                  <div className="flex items-center gap-0.5">
-                    {!isLocal && (
-                      <>
-                        <button
-                          onClick={() => testNode(node)}
-                          disabled={busy === node.id}
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
-                          title="Test connection"
-                        >
-                          {busy === node.id ? <Loader2 size={12} className="zk-spin" /> : <PlugZap size={12} />}
-                        </button>
-                        <button
-                          onClick={() => rotate(node)}
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/10 hover:text-white"
-                          title="Rotate agent token"
-                        >
-                          <KeyRound size={12} />
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => {
-                        setDetail(node);
-                        setDetailTab("overview");
-                      }}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/10 hover:text-white"
-                      title="Details"
-                    >
-                      <ChevronRight size={13} />
-                    </button>
-                    {!isLocal && (
-                      <button
-                        onClick={() => remove(node)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 transition hover:bg-red-500/15 hover:text-red-300"
-                        title="Remove"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
+                  <p className="mt-0.5 truncate font-mono text-[0.62rem] text-zinc-600">
+                    {node.hostname || (local ? "this panel" : "waiting for the daemon")}
+                    {node.ip && node.ip !== "127.0.0.1" ? ` · ${node.ip}` : ""}
+                  </p>
                 </div>
+                <Badge tone={online ? "online" : "offline"}>{online ? "online" : "offline"}</Badge>
+              </div>
 
-                {/* live meters, three across */}
-                <div className="grid grid-cols-3 divide-x divide-white/[0.05] border-y border-white/[0.05]">
-                  {[
-                    { label: "CPU", value: `${node.usage?.cpu ?? 0}%`, pct: node.usage?.cpu ?? 0, tone: "#ff7a18" },
-                    {
-                      label: "Memory",
-                      value: `${formatMb(node.usage?.ram ?? 0)} / ${formatMb(node.capacity?.memoryMb ?? 0)}`,
-                      pct: memPct,
-                      tone: memPct > 85 ? "#ef4444" : "#38bdf8",
-                    },
-                    {
-                      label: "Disk",
-                      value: `${formatMb(node.usage?.disk ?? 0)} / ${formatMb(node.capacity?.diskMb ?? 0)}`,
-                      pct: diskPct,
-                      tone: diskPct > 85 ? "#ef4444" : "#a78bfa",
-                    },
-                  ].map((meter) => (
-                    <div key={meter.label} className="px-3 py-2.5">
-                      <div className="flex items-baseline justify-between gap-1">
-                        <span className="text-[0.56rem] font-bold uppercase tracking-[0.12em] text-zinc-600">{meter.label}</span>
-                        <span className="font-mono text-[0.62rem] text-zinc-400">{Math.round(meter.pct)}%</span>
-                      </div>
-                      <p className="mt-0.5 truncate font-mono text-[0.68rem] text-zinc-300">{meter.value}</p>
-                      <div className="mt-1.5 h-[2px] w-full overflow-hidden rounded-full bg-white/[0.07]">
-                        <div
-                          className="h-full rounded-full transition-[width] duration-500"
-                          style={{ width: `${Math.min(100, meter.pct)}%`, background: meter.tone }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-3 grid gap-3 px-4">
+                <Meter
+                  label="CPU"
+                  icon={<Cpu size={9} />}
+                  value={node.usage?.cpu || 0}
+                  max={100}
+                  unit={`${node.capacity?.cpuCores || 0} cores`}
+                />
+                <Meter
+                  label="Memory"
+                  icon={<MemoryStick size={9} />}
+                  value={node.usage?.ram || 0}
+                  max={node.capacity?.memoryMb || 0}
+                  unit="—"
+                />
+                <Meter
+                  label="Disk"
+                  icon={<HardDrive size={9} />}
+                  value={node.usage?.disk || 0}
+                  max={node.capacity?.diskMb || 0}
+                  unit="—"
+                />
+              </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-[0.62rem] text-zinc-600">
-                  <span className="flex min-w-0 items-center gap-1">
-                    {online ? <Activity size={10} className="text-emerald-400" /> : <AlertTriangle size={10} className="text-amber-500/70" />}
-                    <span className="truncate">{node.connectivity}</span>
-                  </span>
-                  <span className="flex-none">
-                    {online && node.hostInfo?.uptime ? `up ${formatUptime(node.hostInfo.uptime)} · ` : ""}
-                    {node.lastSeen ? `seen ${relativeTime(node.lastSeen)}` : "never seen"}
-                  </span>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2 text-[0.6rem] text-zinc-600">
+                <span className="flex min-w-0 items-center gap-1">
+                  {online ? (
+                    <Activity size={10} className="text-emerald-400" />
+                  ) : (
+                    <WifiOff size={10} className="text-zinc-600" />
+                  )}
+                  <span className="truncate">{node.connectivity}</span>
+                </span>
+                <span className="flex-none">
+                  {node.serverCount} server{node.serverCount === 1 ? "" : "s"}
+                  {node.lastSeen ? ` · seen ${relativeTime(node.lastSeen)}` : ""}
+                </span>
+              </div>
 
-      {/* ═══════════════════════════ add-node wizard ═════════════════════ */}
+              <div className="flex flex-wrap gap-1.5 border-t border-white/[0.06] px-4 py-2">
+                <Button size="sm" variant="ghost" icon={<TerminalSquare size={11} />} onClick={() => setDetail(node)}>
+                  Details
+                </Button>
+                {!local && online && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<PlugZap size={11} />}
+                    loading={pinging === node.id}
+                    onClick={() => ping(node)}
+                  >
+                    Ping
+                  </Button>
+                )}
+                {!local && (
+                  <Button size="sm" variant="ghost" icon={<Trash2 size={11} />} onClick={() => remove(node)}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+
+        {!nodes.length && (
+          <Card className="lg:col-span-2">
+            <EmptyState
+              icon={<Boxes size={20} />}
+              title="No nodes yet"
+              message="Add a machine to run servers on it. You will get a single command to paste there."
+              action={
+                <Button variant="primary" icon={<Plus size={13} />} onClick={openWizard}>
+                  Add node
+                </Button>
+              }
+            />
+          </Card>
+        )}
+      </div>
+
+      {/* ═══════════════════════════ add node ═════════════════════════ */}
       <Modal
-        open={wizardOpen}
+        open={open}
         onClose={() => {
-          setWizardOpen(false);
+          setOpen(false);
           reload();
         }}
-        title="Add a node"
-        subtitle="Connect a machine that will run game servers"
+        title={created ? "Node added" : "Add a node"}
+        subtitle={created ? "Run one command on the machine" : "Name it, then paste one command on the machine"}
         icon={<Boxes size={16} />}
-        width="max-w-3xl"
+        width="max-w-2xl"
         footer={
-          createdId ? (
+          created ? (
             <>
-              <Button onClick={() => setWizardOpen(false)}>Close</Button>
-              <Button variant="primary" icon={<RefreshCw size={12} />} onClick={reload}>
-                Re-check status
+              <Button onClick={() => setOpen(false)}>Close</Button>
+              <Button icon={<RefreshCw size={12} />} onClick={reload}>
+                Check again
               </Button>
             </>
           ) : (
             <>
-              <Button onClick={() => setWizardOpen(false)}>Cancel</Button>
-              {probe && (
-                <Button icon={<PlugZap size={13} />} loading={testing} onClick={testConnection}>
-                  Test address
-                </Button>
-              )}
-              <Button variant="primary" loading={saving} icon={<Plus size={13} />} onClick={createAndInstall}>
-                Generate token
+              <Button onClick={() => setOpen(false)}>Cancel</Button>
+              <Button variant="primary" loading={saving} icon={<Plus size={13} />} onClick={create}>
+                Add node
               </Button>
             </>
           )
         }
       >
-        <div className="space-y-1">
-          <Step index={1} title="Name the machine" done={Boolean(createdId)} active={!createdId}>
+        {!created ? (
+          <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Node name" required>
+              <Field label="Node name" required hint="Shown on the card, e.g. EU-2 or VPS-Frankfurt.">
                 <input
                   className="zk-input"
                   value={form.name}
-                  onChange={(e) => set("name", e.target.value)}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder="EU-2"
                   autoFocus
                 />
               </Field>
-              <Field label="Location" hint="Optional — shown on the node card.">
+              <Field label="Location" hint="Optional.">
                 <input
                   className="zk-input"
                   value={form.location}
-                  onChange={(e) => set("location", e.target.value)}
+                  onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
                   placeholder="Frankfurt, DE"
                 />
               </Field>
             </div>
-            <p className="mt-2 text-[0.64rem] leading-relaxed text-zinc-600">
-              That is all you type. The agent reports its own public IP, port and capacity the moment it connects.
-            </p>
-          </Step>
 
-          <Step index={2} title="Run one command on that machine" done={Boolean(createdId) && false} active={Boolean(createdId)}>
-            {createdId ? (
-              <div className="space-y-3">
-                {/* ── the token, whole, once ─────────────────────────────── */}
-                <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-amber-300/80">
-                      <KeyRound size={10} /> Agent token
-                    </span>
-                    <Badge tone="warn">shown once</Badge>
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 select-all break-all rounded border border-white/[0.08] bg-black/45 px-2 py-1.5 font-mono text-[0.68rem] text-amber-100">
-                      {agentToken || "generating…"}
-                    </code>
-                    <Button
-                      size="sm"
-                      icon={<Copy size={11} />}
-                      onClick={() => copyToClipboard(agentToken).then(() => success("Token copied"))}
-                      disabled={!agentToken}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                  <p className="mt-1.5 text-[0.6rem] leading-relaxed text-amber-200/60">
-                    Keep this. It is not shown again — reopen the node and rotate it if you lose it.
-                  </p>
-                </div>
-
-                {/* ── one command, nothing to edit ──────────────────────── */}
-                <div className="relative">
-                  <pre className="zk-console max-h-[120px] overflow-auto !text-[0.64rem] leading-relaxed">
-{installCommand(agentToken, panelBase)}
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyToClipboard(installCommand(agentToken, panelBase)).then(() => success("Command copied"))
-                    }
-                    className="absolute right-2 top-2 rounded border border-white/10 bg-black/70 p-1.5 text-zinc-400 transition hover:text-white"
-                    title="Copy command"
-                  >
-                    <Copy size={11} />
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    icon={<Copy size={12} />}
-                    onClick={() =>
-                      copyToClipboard(installCommand(agentToken, panelBase)).then(() => success("Command copied"))
-                    }
-                  >
-                    Copy command
-                  </Button>
-                  <Button size="sm" icon={<RefreshCw size={12} />} onClick={() => setIsWaiting(true)}>
-                    {isWaiting ? "Waiting for the agent…" : "Wait for it to connect"}
-                  </Button>
-                </div>
-                <p className="text-[0.61rem] leading-relaxed text-zinc-600">
-                  The command downloads <span className="font-mono text-zinc-400">install-agent.sh</span> from this
-                  panel, so the token already knows where to dial back. It prints the node's real public address,
-                  installs Node if missing, and starts the agent as a service.
-                </p>
-              </div>
-            ) : (
-              <p className="text-[0.68rem] leading-relaxed text-zinc-500">
-                Press <span className="text-zinc-300">Generate token</span> and you get the full token plus the exact
-                command to run — no IP hunting, no manual port juggling.
+            <div className="rounded-lg border border-white/[0.07] bg-black/25 p-3">
+              <p className="text-[0.7rem] leading-relaxed text-zinc-400">
+                That is everything. The panel issues a token and shows you one command. The daemon on the node dials{" "}
+                <span className="text-zinc-200">out</span> to this panel over WebSocket, so you never open a port, find
+                an IP, or touch a firewall.
               </p>
-            )}
-          </Step>
-
-          <Step
-            index={3}
-            title="The node connects itself"
-            done={nodes.find((n) => n.id === createdId)?.status === "online"}
-            active={Boolean(createdId)}
-          >
-            {createdId ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/[0.07] bg-black/25 px-3 py-2">
-                  <span
-                    className={
-                      "h-1.5 w-1.5 rounded-full " +
-                      (live
-                        ? "bg-emerald-400"
-                        : "bg-amber-400 animate-pulse")
-                    }
-                  />
-                  <span className="text-[0.7rem] text-zinc-300">
-                    {live
-                      ? `Connected — the panel detected ${live.hostInfo?.cpuModel || "this machine"} at ${live.ip}:${live.port}.`
-                      : "Waiting for the agent to call in…"}
-                  </span>
-                </div>
-
-                {/* What the node says about itself, when it is online. */}
-                {live?.hostInfo && (
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {[
-                      ["Address", `${live.ip}`],
-                      ["Port", String(live.port)],
-                      ["Cores", String(live.capacity?.cpuCores ?? "—")],
-                      ["Memory", formatMb(live.capacity?.memoryMb ?? 0)],
-                    ].map(([label, value]) => (
-                      <div key={label} className="rounded border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
-                        <p className="text-[0.52rem] uppercase tracking-[0.14em] text-zinc-600">{label}</p>
-                        <p className="truncate font-mono text-[0.68rem] text-zinc-300">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {live?.ip && live.ip !== "0.0.0.0" && (
-                  <p className={
-                    "text-[0.61rem] leading-relaxed " +
-                    (live.status === "online" ? "text-emerald-300/70" : "text-zinc-600")
-                  }>
-                    {live.status === "online"
-                      ? "Nothing else to do. The address above was reported by the agent itself."
-                      : "If it stays offline, the panel cannot reach that address — check the firewall and the panel URL below."}
-                  </p>
-                )}
-
-                {/* Where the installer came from — must be reachable by the node. */}
-                <details className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
-                  <summary className="cursor-pointer text-[0.62rem] text-zinc-500">
-                    Panel address used by the installer
-                  </summary>
-                  <div className="mt-2 space-y-2">
-                    <input
-                      className="zk-input font-mono !text-[0.68rem]"
-                      value={panelBase}
-                      onChange={(e) => updatePanelBase(e.target.value)}
-                      placeholder="http://203.0.113.5:31120"
-                      spellCheck={false}
-                    />
-                    <p className="text-[0.58rem] leading-relaxed text-zinc-600">
-                      Rendered from this browser's origin. If the node cannot reach it (localhost, or a Codespace
-                      URL behind a private port), set the panel's public URL here — the command updates instantly.
-                    </p>
-                  </div>
-                </details>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* ── the token: shown once ────────────────────────────────── */}
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-amber-300/80">
+                  <KeyRound size={10} /> Node token
+                </span>
+                <Badge tone="warn">shown once</Badge>
               </div>
-            ) : (
-              <p className="text-[0.68rem] leading-relaxed text-zinc-500">
-                Status refreshes on its own. You can close this sheet and watch the card instead.
+              <div className="mt-2 flex items-center gap-2">
+                <code className="min-w-0 flex-1 select-all break-all rounded border border-white/[0.08] bg-black/45 px-2 py-1.5 font-mono text-[0.68rem] text-amber-100">
+                  {created.token}
+                </code>
+                <Button
+                  size="sm"
+                  icon={<Copy size={11} />}
+                  onClick={() => copyToClipboard(created.token).then(() => success("Token copied"))}
+                >
+                  Copy
+                </Button>
+              </div>
+              <p className="mt-1.5 text-[0.6rem] leading-relaxed text-amber-200/60">
+                Not shown again. If you lose it, open the node and rotate the token.
               </p>
-            )}
-          </Step>
-        </div>
+            </div>
+
+            {/* ── 1 · download ─────────────────────────────────────────── */}
+            <div className="rounded-lg border border-white/[0.07] p-3">
+              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                1 · Get the daemon onto the machine
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <a
+                  href={DAEMON_ZIP}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[0.68rem] font-medium text-zinc-200 transition hover:bg-white/[0.08] hover:text-white"
+                >
+                  <DownloadCloud size={12} /> Download zkdaemon.zip
+                </a>
+                <span className="text-[0.6rem] text-zinc-600">or</span>
+                <code className="rounded border border-white/[0.08] bg-black/40 px-2 py-1 font-mono text-[0.62rem] text-zinc-400">
+                  wget {window.location.origin}
+                  {DAEMON_ZIP}
+                </code>
+              </div>
+            </div>
+
+            {/* ── 2 · run ──────────────────────────────────────────────── */}
+            <div className="rounded-lg border border-white/[0.07] p-3">
+              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                2 · Unzip and run it
+              </p>
+              <div className="relative mt-2">
+                <pre className="zk-console max-h-[140px] overflow-auto !text-[0.64rem] leading-relaxed">
+{`unzip zkdaemon.zip && cd zkdaemon
+sudo bash install.sh ${created.token} ${created.panelUrl}`}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(
+                      `unzip zkdaemon.zip && cd zkdaemon\nsudo bash install.sh ${created.token} ${created.panelUrl}`
+                    ).then(() => success("Command copied"))
+                  }
+                  className="absolute right-2 top-2 rounded border border-white/10 bg-black/70 p-1.5 text-zinc-400 transition hover:text-white"
+                  title="Copy command"
+                >
+                  <Copy size={11} />
+                </button>
+              </div>
+              <p className="mt-2 text-[0.6rem] leading-relaxed text-zinc-600">
+                Installs it as a systemd service that survives a reboot. Already have it? Just run{" "}
+                <code className="font-mono text-zinc-500">node .</code> inside the folder — it reads{" "}
+                <code className="font-mono text-zinc-500">config.json</code>.
+              </p>
+            </div>
+
+            {/* ── 3 · watch ────────────────────────────────────────────── */}
+            <div className="rounded-lg border border-white/[0.07] bg-black/25 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={
+                    "h-1.5 w-1.5 rounded-full " +
+                    (created.status === "online" ? "bg-emerald-400" : "bg-amber-400 animate-pulse")
+                  }
+                />
+                <span className="text-[0.68rem] text-zinc-300">
+                  {created.status === "online"
+                    ? `Connected — ${created.hostname || created.ip} · ${created.capacity?.cpuCores} cores · ${formatMb(created.capacity?.memoryMb || 0)}`
+                    : "Waiting for the daemon to connect…"}
+                </span>
+              </div>
+              {created.status === "online" && (
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    ["Address", created.ip || "—"],
+                    ["Platform", created.hostInfo?.platform || "—"],
+                    ["Cores", String(created.capacity?.cpuCores ?? "—")],
+                    ["Memory", formatMb(created.capacity?.memoryMb || 0)],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+                      <p className="text-[0.52rem] uppercase tracking-[0.14em] text-zinc-600">{label}</p>
+                      <p className="truncate font-mono text-[0.66rem] text-zinc-300">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
 
-      {/* ═══════════════════════════ node detail ═════════════════════════ */}
+      {/* ═══════════════════════════ detail ═════════════════════════ */}
       <Modal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
         title={detail?.name || "Node"}
-        subtitle={detail ? `${detail.ip}:${detail.port}` : undefined}
+        subtitle={detail ? (detail.hostname || detail.ip || "no address yet") : undefined}
         icon={<Boxes size={16} />}
-        width="max-w-2xl"
+        width="max-w-xl"
         footer={<Button onClick={() => setDetail(null)}>Close</Button>}
       >
         {detail && (
-          <div className="space-y-3">
-            <Tabs
-              tabs={[
-                { id: "overview", label: "Overview", icon: <Activity size={12} /> },
-                { id: "agent", label: "Agent & token", icon: <TerminalSquare size={12} /> },
-              ]}
-              active={detailTab}
-              onChange={setDetailTab}
-            />
-
-            {detailTab === "overview" && (
-              <div className="space-y-3">
-                <ProbeResult
-                  probe={{
-                    reachable: detail.status === "online",
-                    authenticated: detail.status === "online",
-                    message: detail.connectivity,
-                    latencyMs: null,
-                  }}
-                />
-                <div className="zk-cellgrid grid-cols-2 overflow-hidden rounded-lg">
-                  {[
-                    ["Status", detail.status],
-                    ["Hostname", detail.hostname || "—"],
-                    ["Cores", detail.capacity?.cpuCores ?? "—"],
-                    ["Memory", formatMb(detail.capacity?.memoryMb ?? 0)],
-                    ["Disk", formatMb(detail.capacity?.diskMb ?? 0)],
-                    ["Platform", detail.hostInfo?.platform || "—"],
-                    ["Java", detail.hostInfo?.java?.version || "not detected"],
-                    ["Last seen", detail.lastSeen ? relativeTime(detail.lastSeen) : "never"],
-                  ].map(([label, value]) => (
-                    <div key={label as string}>
-                      <p className="zk-cell-label">{label}</p>
-                      <p className="zk-cell-value">{String(value)}</p>
-                    </div>
-                  ))}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {[
+                ["Status", isOnline(detail) ? "online" : "offline"],
+                ["Daemon", detail.daemonVersion ? `v${detail.daemonVersion}` : "—"],
+                ["Address", detail.ip || "—"],
+                ["Platform", detail.hostInfo?.platform || "—"],
+                ["CPU", detail.hostInfo?.cpuModel || "—"],
+                ["Java", detail.java?.version || (detail.java?.installed ? "installed" : "not installed")],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+                  <p className="text-[0.52rem] uppercase tracking-[0.14em] text-zinc-600">{label}</p>
+                  <p className="truncate font-mono text-[0.66rem] text-zinc-300" title={String(value)}>
+                    {value}
+                  </p>
                 </div>
+              ))}
+            </div>
+
+            <p className="text-[0.66rem] leading-relaxed text-zinc-500">{detail.connectivity}</p>
+
+            {detail.id !== "local" && (
+              <div className="space-y-2 rounded-lg border border-white/[0.07] p-3">
+                <p className="flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  <ShieldCheck size={10} /> Token
+                </p>
+                <p className="text-[0.62rem] leading-relaxed text-zinc-600">
+                  The token is only shown once, when the node is added. If it is lost, rotate it — the daemon must then
+                  be restarted with the new value.
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {detail.id !== "local" && (
-                    <>
-                      <Button size="sm" icon={<PlugZap size={12} />} loading={busy === detail.id} onClick={() => testNode(detail)}>
-                        Test connection
-                      </Button>
-                      <Button size="sm" icon={<Pencil size={12} />} onClick={() => { setDetail(null); setForm({ ...emptyForm, ...detail }); setWizardOpen(true); }}>
-                        Edit address
-                      </Button>
-                    </>
-                  )}
+                  <Button size="sm" icon={<KeyRound size={11} />} onClick={() => rotate(detail)}>
+                    Rotate token
+                  </Button>
+                  <a
+                    href={DAEMON_ZIP}
+                    download
+                    className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[0.68rem] font-medium text-zinc-200 transition hover:bg-white/[0.08] hover:text-white"
+                  >
+                    <Download size={11} /> Daemon zip
+                  </a>
                 </div>
               </div>
             )}
 
-            {detailTab === "agent" && (
-              <div className="space-y-3">
-                {detail.id === "local" ? (
-                  <p className="rounded-lg border border-white/[0.07] bg-black/25 px-3 py-2 text-[0.7rem] text-zinc-500">
-                    The built-in node runs inside this panel process; it has no agent or token.
-                  </p>
-                ) : (
-                  <>
-                    <div className="rounded-lg border border-white/[0.07] bg-black/25 px-3 py-2">
-                      <p className="zk-eyebrow mb-1 flex items-center gap-1.5">
-                        <ShieldCheck size={10} /> Token
-                      </p>
-                      <p className="font-mono text-[0.7rem] text-zinc-400">{detail.tokenHint || "not set"}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        icon={<Copy size={12} />}
-                        onClick={async () => {
-                          try {
-                            const result = await api<{ token: string }>(`/nodes/${detail.id}/token`);
-                            await copyToClipboard(installCommand(result.token, panelBase));
-                            success("Install command copied", "It carries this node's token.");
-                          } catch (err: any) {
-                            error("Could not fetch token", err.message);
-                          }
-                        }}
-                      >
-                        Copy install command
-                      </Button>
-                      <Button size="sm" icon={<KeyRound size={12} />} onClick={() => rotate(detail)}>
-                        Rotate token
-                      </Button>
-                      <Button size="sm" icon={<Network size={12} />} onClick={() => testNode(detail)} loading={busy === detail.id}>
-                        Test connection
-                      </Button>
-                    </div>
-                    <pre className="zk-console max-h-[150px] overflow-auto !text-[0.6rem] leading-relaxed">
-{`# On the node, as root:
-curl -fsSL https://raw.githubusercontent.com/SKYDO234/ZK-MC3/main/install.sh -o install.sh
-sudo ZK_PANEL_TOKEN=<token> AGENT_PORT=${detail.port} bash install.sh --agent
-
-# or, if the repository is already on that host:
-ZK_PANEL_TOKEN=<token> PORT=${detail.port} node agent/agent.cjs`}
-                    </pre>
-                  </>
-                )}
-              </div>
+            {detail.id === "local" && (
+              <p className="flex items-start gap-1.5 text-[0.62rem] leading-relaxed text-zinc-600">
+                <Check size={11} className="mt-0.5 flex-none text-emerald-400" />
+                The built-in node runs inside this panel process and needs no daemon.
+              </p>
             )}
           </div>
         )}
@@ -865,16 +561,4 @@ ZK_PANEL_TOKEN=<token> PORT=${detail.port} node agent/agent.cjs`}
   );
 };
 
-/** One copy-paste block that both installs and starts the agent. */
-/**
- * The whole node setup, in one line. The token carries the panel's own address,
- * so the agent dials back to whoever issued it — nothing else to fill in, and
- * no way to typo the IP.
- */
-const installCommand = (token: string, panelBase: string) =>
-  `curl -fsSL ${panelBase}/install-agent.sh | sudo bash -s -- ${token || "<token>"}`;
-
-
-/** Fallback for hosts that already have the repository. */
-const directCommand = (token: string, port: number | string) =>
-  `ZK_PANEL_TOKEN=${token || "<token>"} PORT=${port} node agent/agent.cjs`;
+export default NodesPage;

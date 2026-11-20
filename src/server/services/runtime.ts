@@ -58,6 +58,9 @@ export interface ServerRecord {
   updatedAt: string;
   startedAt: string | null;
   lastBackupAt?: string | null;
+  /** Set once the node has this server's files; cleared to force a reinstall. */
+  installedAt?: string | null;
+  reinstallRequested?: boolean;
   pid?: number | null;
   javaVersion?: string;
   startupCommand?: string | null;
@@ -129,6 +132,15 @@ const appendConsoleLog = async (id: string, text: string) => {
     /* ignore log write errors */
   }
 };
+
+/**
+ * Appends output that came from a node's daemon.
+ *
+ * Kept separate from appendConsoleLog only so the intent is obvious at the call
+ * site: node output arrives as UTF-8 chunks over a socket and must land in the
+ * same per-server log the panel writes, or the console empties on reload.
+ */
+export const appendRemoteConsole = (serverId: string, text: string) => appendConsoleLog(serverId, text);
 
 /** Mirrors important lifecycle events into the admin platform console. */
 const panelEvent = (message: string) => {
@@ -531,10 +543,184 @@ const installForgeServer = async (server: ServerRecord, java: string, onLog: (m:
   return { script: script || null, jar: builtJar || null };
 };
 
+/* ─────────────────────────────────────────────── remote node dispatch ───── */
+
+/** True when this server is hosted by a remote daemon rather than this panel. */
+export const isRemoteServer = (server: Pick<ServerRecord, "nodeId" | "runtime">) =>
+  Boolean(server.nodeId && server.nodeId !== "local");
+
+/**
+ * Launch command for a remote server.
+ *
+ * The panel stays authoritative about *what* to run — it already builds JVM
+ * flags, Forge launch scripts and runtime entry points — and the daemon only
+ * needs to spawn it. Sending the resolved command keeps one implementation of
+ * that logic instead of two that drift apart.
+ */
+const remoteLaunchCommand = async (server: ServerRecord) => {
+  const software = (server.software || "PAPER").toUpperCase();
+  const ram = Math.max(512, Number(server.ram) || 1024);
+  if (software === "NODEJS") return { command: "node", args: ["index.js"] };
+  if (software === "PYTHON") return { command: "python3", args: ["-u", "main.py"] };
+  if (software === "FORGE" || software === "NEOFORGE") {
+    return { command: "sh", args: ["run.sh", "nogui"], fallback: { command: "java", args: minecraftJavaArgs(ram) } };
+  }
+  if (isProxy(software)) {
+    return {
+      command: "java",
+      args: [
+        `-Xms${ram}M`,
+        `-Xmx${ram}M`,
+        "-Dterminal.jline=false",
+        "-Dterminal.ansi=true",
+        "-jar",
+        "server.jar",
+      ],
+    };
+  }
+  return { command: "java", args: [...minecraftJavaArgs(ram), "-jar", "server.jar", "nogui", "--nojline"] };
+};
+
+/**
+ * Installs a remote server's files on its node.
+ *
+ * The daemon cannot resolve Paper/DVR (the panel owns the download logic and
+ * its mirrors), so the panel streams the resolved artefacts down the socket as
+ * base64. That keeps one implementation of "where do I get a Paper jar", and
+ * the daemon stays a dumb, dependable executor.
+ */
+const provisionRemoteServer = async (server: ServerRecord) => {
+  const { runOnNode } = await import("./daemon");
+  const software = (server.software || "PAPER").toUpperCase();
+  const log = (m: string) => void writeLog(server.id, m);
+
+  // Scratch space on the panel: the node only ever receives bytes.
+  const scratch = path.join(DATA_DIR, "uploads", `provision-${server.id}`);
+  await fs.ensureDir(scratch);
+
+  const upload = async (fileName: string, localPath: string) => {
+    const size = (await fs.stat(localPath)).size;
+    // Socket.IO frames cap around 1 MB by default; send in chunks the daemon
+    // reassembles, so a 60 MB jar never blows the transport.
+    const CHUNK = 512 * 1024;
+    const { open } = await import("fs/promises");
+    const handle = await open(localPath, "r");
+    try {
+      const chunks = Math.ceil(size / CHUNK) || 1;
+      for (let i = 0; i < chunks; i += 1) {
+        const buffer = Buffer.alloc(Math.min(CHUNK, size - i * CHUNK));
+        await handle.read(buffer, 0, buffer.length, i * CHUNK);
+        await runOnNode(server.nodeId, "fs:op", {
+          op: "writeChunk",
+          serverId: server.id,
+          file: fileName,
+          chunk: buffer.toString("base64"),
+          index: i,
+          total: chunks,
+        }, 60000);
+      }
+    } finally {
+      await handle.close();
+    }
+    log(`[Panel] Sent ${fileName} (${(size / 1024 / 1024).toFixed(1)} MB) to the node.`);
+  };
+
+  try {
+    if (software === "NODEJS" || software === "PYTHON") {
+      // Provision into the scratch dir with the existing local logic, then
+      // ship the generated entry point.
+      const fake: ServerRecord = { ...server };
+      const dir = serverDir(server.id);
+      const hadFiles = await fs.pathExists(path.join(dir, software === "NODEJS" ? "index.js" : "main.py"));
+      await provisionServerFiles(fake, log);
+      for (const file of software === "NODEJS" ? ["index.js", "package.json"] : ["main.py"]) {
+        const local = path.join(dir, file);
+        if (await fs.pathExists(local)) await upload(file, local);
+      }
+      if (!hadFiles) log(`[Panel] Generated the ${SOFTWARE_LABEL(software)} entry point on the panel.`);
+      return;
+    }
+
+    if (software === "FORGE" || software === "NEOFORGE") {
+      // Forge needs a Java installer run on the node itself.
+      await runOnNode(
+        server.nodeId,
+        "provision",
+        { serverId: server.id, software, version: server.version, javaMajor: javaMajorFor(software, server.version) },
+        300000
+      );
+      log(`[Panel] The node is running the ${SOFTWARE_LABEL(software)} installer.`);
+      return;
+    }
+
+    const jarPath = path.join(scratch, "server.jar");
+    await downloadServerJar(software, server.version, jarPath, log);
+    await upload("server.jar", jarPath);
+    await runOnNode(server.nodeId, "fs:op", {
+      op: "write",
+      serverId: server.id,
+      file: "eula.txt",
+      content: "eula=true\n",
+    }, 15000);
+  } finally {
+    await fs.remove(scratch).catch(() => {});
+  }
+};
+
+const startRemoteServer = async (server: ServerRecord, triggeredBy: string) => {
+  const { runOnNode } = await import("./daemon");
+  await updateServer(server.id, { status: "starting" });
+  emitStatus(server.id, "starting");
+  await writeLog(server.id, `[Panel] Dispatching start to node "${server.nodeId}" (triggered by ${triggeredBy})`);
+
+  // A server whose files have never been pushed to this node needs them first.
+  if (!server.installedAt || server.reinstallRequested) {
+    await writeLog(server.id, `[Panel] Installing server files on node "${server.nodeId}"...`);
+    await provisionRemoteServer(server);
+    await updateServer(server.id, { installedAt: new Date().toISOString(), reinstallRequested: false } as any);
+  }
+
+  const launch = await remoteLaunchCommand(server);
+  const env: Record<string, string> = {
+    PORT: String(server.port),
+    SERVER_PORT: String(server.port),
+    ZK_SERVER_ID: server.id,
+    ZK_SERVER_NAME: server.name,
+    ZK_RAM_MB: String(server.ram),
+    ...((server as any).env || {}),
+  };
+
+  try {
+    const result = await runOnNode(server.nodeId, "start", {
+      serverId: server.id,
+      command: launch.command,
+      args: launch.args,
+      env,
+      port: server.port,
+      software: server.software,
+      version: server.version,
+    });
+    await updateServer(server.id, {
+      status: "online",
+      pid: result?.pid || null,
+      startedAt: new Date().toISOString(),
+    });
+    emitStatus(server.id, "online");
+    await writeLog(server.id, `[Panel] Server is online on node "${server.nodeId}" (PID ${result?.pid ?? "?"}).`);
+    return true;
+  } catch (err: any) {
+    await writeLog(server.id, `[Panel] Startup failed on the node: ${err.message}`);
+    await updateServer(server.id, { status: "error", pid: null, startedAt: null });
+    emitStatus(server.id, "error");
+    throw err;
+  }
+};
+
 export const startServer = async (serverId: string, triggeredBy = "panel") => {
   const server = await findServer(serverId);
   if (!server) throw new Error("Server not found");
   if (server.status === "suspended") throw new Error("This server is suspended");
+  if (isRemoteServer(server)) return startRemoteServer(server, triggeredBy);
   if (procs.has(serverId)) throw new Error("Server is already running");
 
   // External (recovered) process check
@@ -682,6 +868,11 @@ export const startServer = async (serverId: string, triggeredBy = "panel") => {
 };
 
 export const sendCommandToServer = async (serverId: string, command: string) => {
+  const target = await findServer(serverId);
+  if (target && isRemoteServer(target)) {
+    const { runOnNode } = await import("./daemon");
+    return runOnNode(target.nodeId, "command", { serverId, command });
+  }
   const managed = procs.get(serverId);
   if (!managed) {
     throw new Error("Server is not accepting console input. Start the server first.");
@@ -699,6 +890,32 @@ export const sendCommandToServer = async (serverId: string, command: string) => 
 
 const stopManaged = async (serverId: string, signal: NodeJS.Signals, gracefulMs: number) => {
   const server = await findServer(serverId);
+
+  if (server && isRemoteServer(server)) {
+    const { runOnNode } = await import("./daemon");
+    await updateServer(serverId, { status: "stopping" });
+    emitStatus(serverId, "stopping");
+    try {
+      // Minecraft reads "stop" on stdin so the world saves; anything else gets
+      // a signal straight away.
+      const MINECRAFT_SOFTWARE = ["PAPER", "PURPUR", "SPIGOT", "BUKKIT", "VANILLA", "FABRIC", "FORGE", "NEOFORGE", "QUILT", "VELOCITY", "BUNGEECORD", "WATERFALL"];
+      if (signal !== "SIGKILL" && MINECRAFT_SOFTWARE.includes(String(server.software).toUpperCase())) {
+        await runOnNode(server.nodeId, "command", { serverId, command: "stop" }).catch(() => {});
+      }
+      // Remote stops are timed by the daemon; a long JVM shutdown must not
+      // hold the panel's request open.
+      await runOnNode(server.nodeId, signal === "SIGKILL" ? "kill" : "stop", {
+        serverId,
+        graceMs: signal === "SIGKILL" ? 2000 : 30000,
+      });
+    } catch (err: any) {
+      await writeLog(serverId, `[Panel] Stop on node failed: ${err.message}`);
+    }
+    await updateServer(serverId, { status: "offline", pid: null, startedAt: null });
+    emitStatus(serverId, "offline");
+    return;
+  }
+
   // Only Minecraft-family jars understand "stop" on stdin. Anything else (custom
   // runtimes such as Node/Python apps) gets a short grace period so the panel UI
   // does not appear to hang for the full timeout.

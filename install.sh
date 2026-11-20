@@ -7,7 +7,6 @@
 #    bash install.sh              Interactive manager menu
 #    bash install.sh install      Fresh install (Node, PM2, Java, panel)
 #    bash install.sh update       Update to the latest version
-#    bash install.sh agent        Install & start the node agent only
 #    bash install.sh createuser   Create / reset an administrator
 #    bash install.sh restart      Restart the panel
 #    bash install.sh status       Show status
@@ -38,7 +37,7 @@ INSTALL_DIR="${ZK_DIR:-/opt/zk-mc3}"
 PANEL_PORT="${PANEL_PORT:-31120}"
 AGENT_PORT="${AGENT_PORT:-6768}"
 PM2_APP="zk-mc3-panel"
-PM2_AGENT="zk-mc3-agent"
+
 NODE_MAJOR=20
 
 # ----------------------------------------------------------------- helpers
@@ -413,90 +412,6 @@ do_update() {
   ok "Update complete — your data in .data/ was preserved."
 }
 
-do_agent() {
-  banner
-  section "Installing ${PANEL_NAME} node agent"
-  install_base_tools
-  install_node
-  fetch_source
-  cd "$INSTALL_DIR" || exit 1
-  # fetch_source may have cloned as root; make the tree readable/writable by
-  # whoever runs the agent so `node agent/agent.cjs` can read it and log.
-  run_root chmod -R a+rX "$INSTALL_DIR/agent" 2>/dev/null || true
-  mkdir -p logs 2>/dev/null || true
-  if [ ! -w logs ]; then
-    LOG_DIR="${HOME:-/tmp}/.zk-mc3-agent"
-    mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="/tmp"
-    warn "Cannot write ${INSTALL_DIR}/logs — logging to ${LOG_DIR}/agent.log"
-  else
-    LOG_DIR="logs"
-  fi
-  AGENT_LOG="${LOG_DIR}/agent.log"
-
-  # The token must be the one the panel generated for this node, otherwise the
-  # agent answers every health poll with 401 and the node looks offline forever.
-  # AGENT_PORT must match the port typed into the panel's Add-node sheet.
-  local token="${ZK_PANEL_TOKEN:-}"
-  local generated=0
-  if [ -z "$token" ]; then
-    token=$(openssl rand -hex 24 2>/dev/null || echo "change-me-$(date +%s)")
-    generated=1
-  fi
-
-  # A previous run holds the port and would make the new one fail to bind.
-  if command -v pm2 >/dev/null 2>&1; then
-    pm2 delete "$PM2_AGENT" >/dev/null 2>&1 || true
-  fi
-  pkill -f "agent/agent.cjs" >/dev/null 2>&1 || true
-  sleep 1
-
-  if command -v pm2 >/dev/null 2>&1; then
-    PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
-      pm2 start agent/agent.cjs --name "$PM2_AGENT" --update-env >/dev/null 2>&1
-    pm2 save >/dev/null 2>&1 || true
-    sleep 2
-    if port_is_listening "$AGENT_PORT"; then
-      ok "Agent running under PM2 on port ${AGENT_PORT}"
-    else
-      warn "Agent is not listening on ${AGENT_PORT} — check 'pm2 logs ${PM2_AGENT}'"
-    fi
-  else
-    (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
-      node agent/agent.cjs > "$AGENT_LOG" 2>&1 < /dev/null &)
-    sleep 2
-    if port_is_listening "$AGENT_PORT"; then
-      ok "Agent started on port ${AGENT_PORT}"
-    else
-      fail "Agent did not start — check ${AGENT_LOG}"
-    fi
-  fi
-
-  # Prove the agent is really answering, not just holding the socket.
-  local probe
-  probe=$(curl -fsS -m 3 "http://127.0.0.1:${AGENT_PORT}/ping" 2>/dev/null || true)
-  if printf '%s' "$probe" | grep -q '"pong":true'; then
-    ok "Agent responded to /ping"
-  else
-    warn "Agent is bound to ${AGENT_PORT} but did not answer /ping"
-  fi
-
-  say ""
-  say "   ${GRAY}Now add this machine in the panel:${NC}"
-  say "     ${WHITE}1.${NC} Admin → Nodes → Add node"
-  say "     ${WHITE}2.${NC} IP       ${WHITE}$(detect_ip)${NC}"
-  say "     ${WHITE}3.${NC} Port     ${WHITE}${AGENT_PORT}${NC}"
-  say "     ${WHITE}4.${NC} Token    ${WHITE}${token}${NC}"
-  say "     ${WHITE}5.${NC} Press ${WHITE}Test connection${NC} → ${WHITE}Add node${NC}"
-  say ""
-  if [ "$generated" = "1" ]; then
-    warn "This token was generated here. Paste it into the panel, or better:"
-    warn "copy the command from the panel's Add-node sheet, which already contains"
-    warn "the right token —  ZK_PANEL_TOKEN=<token> AGENT_PORT=${AGENT_PORT} bash install.sh --agent"
-  fi
-  say "   ${GRAY}Firewall:${NC} allow TCP ${AGENT_PORT} from the panel's IP."
-  say "   ${GRAY}Logs:${NC}     pm2 logs ${PM2_AGENT}   (or ${AGENT_LOG})"
-}
-
 do_createuser() {
   cd "${INSTALL_DIR}" >/dev/null 2>&1 || cd "$(dirname "$0")" || exit 1
   [ -f package.json ] || { fail "Run this from the panel directory."; exit 1; }
@@ -572,7 +487,7 @@ menu() {
     say "   ${CYAN}3${NC}  Create / reset administrator"
     say "   ${CYAN}4${NC}  Restart panel"
     say "   ${CYAN}5${NC}  Status"
-    say "   ${CYAN}6${NC}  Install node agent"
+    say "   ${CYAN}6${NC}  Node daemon (separate download)"
     say "   ${CYAN}7${NC}  Uninstall"
     say "   ${CYAN}0${NC}  Exit"
     say ""
@@ -583,7 +498,7 @@ menu() {
       3) do_createuser; read -r -p "  Press Enter to return…" _ ;;
       4) do_restart; read -r -p "  Press Enter to return…" _ ;;
       5) do_status; read -r -p "  Press Enter to return…" _ ;;
-      6) do_agent; read -r -p "  Press Enter to return…" _ ;;
+      6) bash "$0" agent ;;
       7) do_uninstall; read -r -p "  Press Enter to return…" _ ;;
       0) say "\n  ${GRAY}Bye — ${STUDIO}${NC}\n"; exit 0 ;;
       *) warn "Invalid choice" ;;
@@ -598,12 +513,22 @@ ACTION="${1:-menu}"
 ACTION="${ACTION#--}"
 case "$ACTION" in
   -h|help|-help)
-    sed -n '6,15p' "$0" | sed 's/^#  \{0,1\}//'
+    sed -n '6,16p' "$0" | sed 's/^#  \{0,1\}//'
+    exit 0
+    ;;
+  # The node daemon ships as its own zip (see daemon/ and npm run build:daemon),
+  # so this script no longer installs it.
+  agent)
+    say ""
+    say "  ${AMBER}!${NC} The node daemon is a separate download now."
+    say "  ${GRAY}In the panel:${NC} Admin → Nodes → Add node, then download zkdaemon.zip"
+    say "  ${GRAY}On the node:${NC} unzip it, then  ${WHITE}sudo bash install.sh <token> <panel-url>${NC}"
+    say ""
     exit 0
     ;;
   install) do_install ;;
   update) do_update ;;
-  agent) do_agent ;;
+
   createuser) do_createuser ;;
   restart) do_restart ;;
   status) do_status ;;

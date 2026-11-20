@@ -1,6 +1,7 @@
 import "dotenv/config";
 import "./src/server/services/panellog-install";
 import { Server as SocketServer } from "socket.io";
+import { attachDaemonGateway } from "./src/server/services/daemon";
 import express from "express";
 import path from "path";
 import cors from "cors";
@@ -79,6 +80,11 @@ io.on("connection", (socket) => {
   socket.on("stats:subscribe", () => socket.join("stats"));
 });
 
+// ---------------------------------------------------------------------------
+// Node daemon gateway — the daemon dials in over /daemon and stays connected.
+// ---------------------------------------------------------------------------
+attachDaemonGateway(io);
+
 // Fan out runtime events to subscribers
 panelEvents.on("log", ({ serverId, chunk }) => {
   io.to(`server:${serverId}`).emit("server:log", { serverId, chunk });
@@ -108,7 +114,7 @@ setInterval(async () => {
 import authRoutes from "./src/server/routes/auth";
 import userRoutes from "./src/server/routes/users";
 import serverRoutes from "./src/server/routes/servers";
-import nodeRoutes, { agentRouter } from "./src/server/routes/nodes";
+import nodeRoutes from "./src/server/routes/nodes";
 import apiKeyRoutes from "./src/server/routes/apikeys";
 import adminRoutes from "./src/server/routes/admin";
 import systemRoutes from "./src/server/routes/system";
@@ -116,8 +122,6 @@ import systemRoutes from "./src/server/routes/system";
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/servers", serverRoutes);
-// Agent-facing first: a node has a bearer token, not a session.
-app.use(agentRouter);
 app.use("/api/nodes", nodeRoutes);
 app.use("/api/api-keys", apiKeyRoutes);
 app.use("/api/admin", adminRoutes);
@@ -126,36 +130,27 @@ app.use("/api/system", systemRoutes);
 app.get("/api/settings", async (_req, res) => res.json(await publicSettings()));
 
 // ---------------------------------------------------------------------------
-// Node agent distribution
-//
-// Served by the panel rather than only by GitHub so the agent a node installs
-// is always the version this panel speaks. The installer is a static file; the
-// agent is read from the repo so the two can never drift.
+// Daemon distribution — the zip is served by the panel so a node always runs a
+// daemon built for this exact panel version.
 // ---------------------------------------------------------------------------
-app.get("/install-agent.sh", (req, res) => {
-  const file = path.join(process.cwd(), "public", "install-agent.sh");
-  if (!fs.existsSync(file)) return res.status(404).type("text/plain").send("# install-agent.sh is missing from this build");
-  // Rewrite the panel marker with the origin *this client* used, so the
-  // installer dials back to the same address the operator copied from — no
-  // second field, no chance of a mismatch.
-  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "http").split(",")[0].trim();
-  const host = String(req.headers["x-forwarded-host"] || req.headers.host || `127.0.0.1:${process.env.PORT || 31120}`)
-    .split(",")[0]
-    .trim();
-  const origin = `${proto}://${host}`;
-  // Replace only the default-value expression, so the sentinel comparison in
-  // the script still works when the file is downloaded from GitHub instead.
-  const script = fs
-    .readFileSync(file, "utf8")
-    .split("${ZK_PANEL_URL:-__PANEL_ORIGIN__}")
-    .join(`\${ZK_PANEL_URL:-${origin}}`);
-  res.type("text/x-shellscript").send(script);
+app.get("/downloads/zkdaemon.zip", (req, res) => {
+  const file = path.join(process.cwd(), "dist", "downloads", "zkdaemon.zip");
+  if (!fs.existsSync(file)) {
+    return res
+      .status(404)
+      .type("text/plain")
+      .send("The daemon package has not been built. Run `npm run build:daemon`.");
+  }
+  res.download(file, "zkdaemon.zip");
 });
 
-app.get("/agent.cjs", (_req, res) => {
-  const file = path.join(process.cwd(), "agent", "agent.cjs");
-  if (!fs.existsSync(file)) return res.status(404).type("text/plain").send("// agent.cjs is missing from this build");
-  res.type("text/javascript").send(fs.readFileSync(file, "utf8"));
+app.get("/api/daemon/version", (_req, res) => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "daemon", "package.json"), "utf8"));
+    res.json({ version: pkg.version });
+  } catch {
+    res.json({ version: "unknown" });
+  }
 });
 
 app.get("/api/health", async (_req, res) => {

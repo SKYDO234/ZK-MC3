@@ -1,9 +1,0 @@
-{
-  "name": "zk-mc3-agent",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Zero-dependency telemetry agent for a ZK-MC3 remote node.",
-  "main": "agent.cjs",
-  "bin": { "zk-mc3-agent": "agent.cjs" },
-  "scripts": { "start": "node agent.cjs" }
-}

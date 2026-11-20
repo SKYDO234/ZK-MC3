@@ -500,8 +500,8 @@ GET    /api/admin/dashboard      Admin metrics`}
               <div className="mt-5 space-y-4">
                 <Field label="Default runtime">
                   <select className="zk-select" value={form.defaultRuntime} onChange={(e) => set("defaultRuntime", e.target.value)}>
-                    <option value="local">Local process (Node.js JVM)</option>
-                    <option value="agent">Remote agent node</option>
+                    <option value="local">Local process (this machine)</option>
+                    <option value="daemon">Remote node (zkdaemon)</option>
                   </select>
                 </Field>
                 <Field label="Default software">

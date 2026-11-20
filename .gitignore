@@ -14,3 +14,7 @@ qa-bundle.js
 
 # runtime media uploaded through Themes & Fonts
 public/uploads/
+
+# built daemon artefact (npm run build:daemon) — attach the zip, do not commit it
+dist/downloads/
+releases/
