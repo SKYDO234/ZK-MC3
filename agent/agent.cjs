@@ -80,6 +80,10 @@ const authorized = (req) => {
   return url.searchParams.get("token") === TOKEN;
 };
 
+// A `/ping` that never requires auth: the panel uses it to tell "agent is up,
+// token is wrong" apart from "nothing is listening here".
+const isPing = (req) => new URL(req.url || "/", "http://localhost").pathname === "/ping";
+
 const totalMem = os.totalmem();
 const snapshot = async () => {
   const disk = await diskStats();
@@ -117,11 +121,14 @@ const server = http.createServer(async (req, res) => {
   };
 
   if (req.method === "OPTIONS") return send(204, {});
-  if (!authorized(req)) return send(401, { error: "Invalid agent token" });
-
   const url = new URL(req.url || "/", "http://localhost");
 
-  if (url.pathname === "/ping") return send(200, { pong: true, at: Date.now() });
+  // Open endpoint so the panel can separate connectivity from authentication.
+  if (isPing(req)) {
+    return send(200, { pong: true, at: Date.now(), node: NODE_NAME, agentVersion: "1.0.0", tokenRequired: Boolean(TOKEN) });
+  }
+
+  if (!authorized(req)) return send(401, { error: "Invalid agent token", hint: "Copy the install command from the panel again." });
 
   if (url.pathname === "/health") {
     const [system, java, processes] = await Promise.all([snapshot(), javaInfo(), minecraftProcesses()]);

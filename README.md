@@ -220,8 +220,15 @@ transitions. The whole interface uses a single, consistent design system
 
 ### Nodes
 - Built-in local node reports real CPU/RAM/disk telemetry.
-- Register remote nodes with agent tokens; health is polled automatically.
-- Per-node allocation bars (committed vCPU / RAM / disk vs capacity).
+- **Guided setup**: add a node, press *Test connection*, and the panel tells you
+  exactly what is wrong (nothing listening, DNS failure, timeout, or a rejected
+  token) instead of leaving the node "offline" with no explanation.
+- Registering a node hands you a ready-to-paste install command containing that
+  node's real token, copies it to the clipboard, and waits for the agent to
+  check in.
+- Capacity (cores, RAM, disk) is adopted from the agent on first contact, so
+  the value shown is the machine's real hardware, not a guess.
+- Agent tokens can be rotated in place from the node card.
 
 ### Panel settings
 Eight organised tabs — **Branding, Authentication, Email/SMTP, API, Notifications,
@@ -268,7 +275,7 @@ window with a stream id, live clock, quick-command chips and an
 ZK-MC3/
 ├── server.ts                  Express + Socket.IO + Vite middleware entry
 ├── install.sh                 Installer & service manager
-├── agent/agent.js             Zero-dependency node telemetry agent
+├── agent/agent.cjs             Zero-dependency node telemetry agent
 ├── src/
 │   ├── components/            Design system, layout, sidebar, topbar
 │   ├── context/               Auth, Settings, Toast providers
