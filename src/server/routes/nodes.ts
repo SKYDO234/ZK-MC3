@@ -15,8 +15,97 @@ import { listServers } from "../services/runtime";
 import { logActivity } from "../services/activity";
 import { clientIp } from "../middleware/auth";
 
+/**
+ * --- Agent-facing, deliberately unauthenticated by session -------------------
+ * The agent has no login. Its bearer token *is* the credential, which is why
+ * this router is mounted before `requireAdmin` below.
+ */
+export const agentRouter = Router();
+
+/**
+ * Called by the **agent**, not the operator.
+ *
+ * A node that was registered with no address cannot be probed — the panel has
+ * nowhere to send the request. So the agent announces itself here the moment it
+ * boots, and the panel fills in the address it reports. This is what makes
+ * "paste one command and it connects itself" true: nothing had to be known in
+ * advance.
+ */
+agentRouter.post("/api/nodes/self-register", async (req: any, res) => {
+  const token = String(req.body?.token || "").trim();
+  if (!token) return res.status(400).json({ error: "Missing token" });
+
+  // Resolve by the panel's view of the connection, not by what the agent claims.
+  const seenIp =
+    String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+  const reported = req.body?.address || {};
+  const ip = String(reported.host || seenIp || "").trim();
+  const port = Number(reported.port) || 6768;
+  const protocol = reported.protocol === "https" ? "https" : "http";
+
+  const nodes = await listNodes();
+  const node = nodes.find((n) => n.id !== "local" && n.token === token);
+  if (!node) {
+    return res.status(401).json({
+      error: "Unknown token",
+      hint: "Generate a fresh token in the panel — this one belongs to no node.",
+    });
+  }
+
+  const address = ip && ip !== "0.0.0.0" ? ip : seenIp;
+  if (!address) return res.status(400).json({ error: "The agent did not report a reachable address" });
+
+  await updateNode(node.id, {
+    ip: address,
+    port,
+    protocol,
+    hostname: String(reported.nodeName || reported.hostname || node.hostname || address),
+    status: "online",
+    lastSeen: new Date().toISOString(),
+    ...(Number(reported.cpuCores) ? { cpuCores: Number(reported.cpuCores) } : {}),
+    ...(Number(reported.memoryTotalMb) ? { memoryMb: Number(reported.memoryTotalMb) } : {}),
+    ...(Number(reported.diskTotalMb) ? { diskMb: Number(reported.diskTotalMb) } : {}),
+  });
+
+  res.json({
+    ok: true,
+    nodeId: node.id,
+    nodeName: node.name,
+    address: `${protocol}://${address}:${port}`,
+  });
+});
+
 const router = Router();
 router.use(requireAdmin);
+
+/**
+ * The token handed to an operator is base64url of `{ panel, t }`.
+ *
+ * The installer needs two facts — the secret and the address of the panel that
+ * issued it — and asking for the second one is exactly where node setup used
+ * to fall apart (people paste the panel's *public* URL, or localhost, and the
+ * agent dials nowhere). Folding the panel URL into the token makes the paste a
+ * single value with nothing left to look up.
+ *
+ * `t` is the real secret stored on the node; `panel` is advisory.
+ */
+const encodeToken = (panelBase: string, secret: string) =>
+  Buffer.from(JSON.stringify({ panel: panelBase.replace(/\/+$/, ""), t: secret }), "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+/** The panel URL a remote machine should use, honouring X-Forwarded-* headers. */
+const panelBaseUrl = (req: any) => {
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "http").split(",")[0].trim();
+  const hostHeader = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+  const host = hostHeader || `127.0.0.1:${process.env.PORT || 31120}`;
+  // A panel reached over localhost can still be told its real address later;
+  // the operator can override it in the sheet.
+  return `${proto}://${host}`;
+};
 
 /**
  * Trimmed, validated body → the fields a node actually uses.
@@ -39,7 +128,7 @@ const readNodeBody = (body: any, { partial = false }: { partial?: boolean } = {}
   if (!partial || body?.name !== undefined) add("name", text(body?.name));
   if (!partial || body?.hostname !== undefined) add("hostname", text(body?.hostname));
   if (!partial || body?.ip !== undefined) add("ip", text(body?.ip));
-  if (!partial || body?.port !== undefined) add("port", num(body?.port, 1, 65535) ?? 31120);
+  if (!partial || body?.port !== undefined) add("port", num(body?.port, 1, 65535) ?? 6768);
   add("cpuCores", num(body?.cpuCores, 1, 512));
   add("memoryMb", num(body?.memoryMb, 256, 64 * 1024 * 1024));
   add("diskMb", num(body?.diskMb, 1024, 1024 * 1024 * 1024));
@@ -101,8 +190,13 @@ router.post("/validate", async (req: any, res) => {
 router.post("/", async (req: any, res) => {
   const input = readNodeBody(req.body);
   if (!input.name) return res.status(400).json({ error: "Node name is required" });
-  if (!input.ip) return res.status(400).json({ error: "The node's public IP or hostname is required" });
-  if (!validHost(input.ip)) return res.status(400).json({ error: `"${input.ip}" is not a valid IP address or hostname` });
+  // The address is optional on purpose: the agent reports its own public
+  // address when it checks in, so requiring it here made the operator guess
+  // the one value they are least likely to know (NAT, Codespaces, tunnels).
+  if (input.ip && !validHost(input.ip)) {
+    return res.status(400).json({ error: `"${input.ip}" is not a valid IP address or hostname` });
+  }
+  input.ip = input.ip || "0.0.0.0";
   try {
     const node = await createNode(input);
     await logActivity({
@@ -114,7 +208,14 @@ router.post("/", async (req: any, res) => {
       target: node.id,
       ip: clientIp(req),
     });
-    res.status(201).json(node);
+    // Hand back the encoded token exactly once — it is what the operator
+    // pastes into the installer, and it already knows this panel's address.
+    res.status(201).json({
+      ...node,
+      token: "••••••••",
+      installToken: encodeToken(panelBaseUrl(req), node.token),
+      panelUrl: panelBaseUrl(req),
+    });
   } catch (err: any) {
     res.status(409).json({ error: err.message });
   }
@@ -155,7 +256,16 @@ router.get("/:id/token", async (req: any, res) => {
   const node = await findNode(req.params.id);
   if (!node) return res.status(404).json({ error: "Node not found" });
   if (node.id === "local") return res.status(400).json({ error: "The local node has no agent token" });
-  res.json({ token: node.token, ip: node.ip, port: node.port, name: node.name });
+  const panelUrl = String(req.query.panel || "").trim() || panelBaseUrl(req);
+  res.json({
+    token: node.token,
+    installToken: encodeToken(panelUrl, node.token),
+    panelUrl,
+    ip: node.ip,
+    port: node.port,
+    name: node.name,
+    command: `curl -fsSL ${panelUrl.replace(/\/+$/, "")}/install-agent.sh | sudo bash -s -- ${encodeToken(panelUrl, node.token)}`,
+  });
 });
 
 /** Rotates the token; the operator must restart the agent with the new value. */
@@ -164,6 +274,7 @@ router.post("/:id/token/rotate", async (req: any, res) => {
   if (!node || node.id === "local") return res.status(400).json({ error: "Only remote nodes have tokens" });
   const token = `zkt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   await updateNode(node.id, { token });
+  const panelUrl = String(req.body?.panel || "").trim() || panelBaseUrl(req);
   await logActivity({
     type: "node",
     action: "token.rotate",
@@ -173,7 +284,7 @@ router.post("/:id/token/rotate", async (req: any, res) => {
     target: node.id,
     ip: clientIp(req),
   });
-  res.json({ token });
+  res.json({ token, installToken: encodeToken(panelUrl, token), panelUrl });
 });
 
 router.patch("/:id", async (req: any, res) => {

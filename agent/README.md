@@ -9,56 +9,47 @@ the troubleshooting table at the bottom maps every failure message to its cause.
 
 ---
 
-## The short version (recommended)
+## The short version
 
-1. In the panel open **Admin → Nodes → Add node**.
-2. Fill in a name, the node's **public IP / hostname**, and the **agent port**
-   (default `6768`).
-3. Press **Test connection**, then **Add node**.
-4. The sheet now shows a ready-to-paste command **with this node's real token**
-   and port already filled in, and copies it to your clipboard.
-5. SSH into the node as root and paste it:
+The panel does almost all of this for you.
+
+1. **Admin → Nodes → Add node**
+2. Type a **name**. That is the only required field.
+3. Press **Generate token**. The full token appears — **once** — with a copy
+   button, next to a single command:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/SKYDO234/ZK-MC3/main/install.sh -o install.sh
-   sudo ZK_PANEL_TOKEN=<token-from-panel> AGENT_PORT=6768 bash install.sh --agent
+   curl -fsSL https://<your-panel>/install-agent.sh | sudo bash -s -- zkt_xxxxxxxxxxxx
    ```
 
-6. Back in the panel press **Re-check status**. The card turns **online** and the
-   panel adopts the machine's real CPU model, core count, RAM and disk.
+4. Paste that on the node as root. Done.
 
-The token and port must match the node you created — that is exactly why the
-panel generates the command for you. Typing them by hand is the most common
-reason a node stays offline.
+The command needs no editing: the installer is served by the panel itself, so it
+already knows where to connect. It prints the machine's **real public address**,
+installs Node if missing, starts the agent under **systemd** (or PM2, or a plain
+process), verifies `/ping` and `/health`, then tells the panel where the node is.
 
----
+The node turns green in the panel within seconds — no IP, no port, no extra
+field.
 
-## What the installer does
+> Behind NAT, a Docker bridge, or a **GitHub Codespace**, the machine's own
+> interfaces advertise addresses the panel cannot reach. The installer detects
+> this and reports the address that actually works, including the
+> `https://<codespace>-<port>.app.github.dev` form.
 
-`bash install.sh --agent` (or `bash install.sh agent`):
+### Why the token is only shown once
 
-1. installs base tools and Node.js 20+ if missing;
-2. fetches this repository into `/opt/zk-mc3` (or uses the current checkout);
-3. stops any agent already running on the port;
-4. starts `agent/agent.cjs` with your token and port — under **PM2** if it is
-   available, otherwise as a detached `node` process;
-5. **verifies the agent answers `/ping`** before it declares success;
-6. prints the exact IP / port / token to enter in the panel.
+It is the node's credential. It is stored hashed nowhere — it lives in plain
+text in `.data/nodes.json` on the panel and in the agent's systemd unit — so the
+panel deliberately does not re-display it in lists. If it is lost, open the node
+and press **Rotate token**; the old one stops working and a new command is
+generated.
 
-Environment variables it reads:
+### If the panel is not reachable from the node
 
-| Variable         | Default       | Meaning                                        |
-| ---------------- | ------------- | ---------------------------------------------- |
-| `ZK_PANEL_TOKEN` | random        | The token the panel generated. **Set this.**    |
-| `AGENT_PORT`     | `6768`        | Port the agent listens on. Match the panel.     |
-| `ZK_AGENT_NAME`  | hostname      | Friendly name shown in telemetry.               |
-| `ZK_DIR`         | `/opt/zk-mc3` | Where the source lives.                         |
-
-If you do not pass `ZK_PANEL_TOKEN`, the installer invents one and prints it —
-you must then paste *that* token into the panel instead. Nothing else breaks,
-but it is easier to let the panel generate the command.
-
----
+The command is built from the browser's origin. When the panel sits behind a
+proxy or on `localhost`, open **Panel address used by the installer** in step 3
+of the sheet and set the public URL — the command updates instantly.
 
 ## Manual install (any distro, no installer)
 

@@ -21,6 +21,8 @@ export interface NodeRecord {
   createdAt: string;
   description?: string;
   allocPortRange?: string;
+  /** `https` when the agent sits behind a TLS proxy (Codespaces, Caddy, tunnel). */
+  protocol?: "http" | "https";
 }
 
 const FILE = "nodes.json";
@@ -62,7 +64,13 @@ export interface ProbeResult {
   system?: any;
   java?: any;
   processes?: any[];
+  /** Public address the agent detected on its own host, if it reported one. */
+  publicAddress?: { host: string; port: number; protocol: string; source: string } | null;
 }
+
+/** The base URL for a node, honouring an https agent. */
+export const nodeBaseUrl = (node: Pick<NodeRecord, "ip" | "port" | "protocol">) =>
+  `${node.protocol === "https" ? "https" : "http"}://${node.ip}:${node.port}`;
 
 /**
  * Talks to a node's agent exactly the way `nodeWithUsage` does, but returns the
@@ -75,13 +83,13 @@ export const probeNode = async (node: NodeRecord, timeoutMs = 4000): Promise<Pro
   // Step 1 — is anything listening? `/ping` needs no token, so a 401 here is a
   // definitive "wrong token" instead of an ambiguous failure.
   try {
-    const ping = await axios.get(`http://${node.ip}:${node.port}/ping`, {
+    const ping = await axios.get(`${nodeBaseUrl(node)}/ping`, {
       timeout: Math.min(timeoutMs, 2500),
       validateStatus: () => true,
     });
     if (ping.status === 200 && ping.data?.pong) {
       const latencyMs = Date.now() - started;
-      const health = await axios.get(`http://${node.ip}:${node.port}/health`, {
+      const health = await axios.get(`${nodeBaseUrl(node)}/health`, {
         timeout: timeoutMs,
         validateStatus: () => true,
         headers: node.token ? { Authorization: `Bearer ${node.token}` } : {},
@@ -95,6 +103,7 @@ export const probeNode = async (node: NodeRecord, timeoutMs = 4000): Promise<Pro
           system: health.data.system,
           java: health.data.java,
           processes: health.data.processes,
+          publicAddress: health.data.publicAddress || null,
         };
       }
       return {
@@ -111,7 +120,7 @@ export const probeNode = async (node: NodeRecord, timeoutMs = 4000): Promise<Pro
     /* fall through to the direct /health attempt below */
   }
 
-  const url = `http://${node.ip}:${node.port}/health`;
+  const url = `${nodeBaseUrl(node)}/health`;
   try {
     const res = await axios.get(url, {
       timeout: timeoutMs,
@@ -143,6 +152,7 @@ export const probeNode = async (node: NodeRecord, timeoutMs = 4000): Promise<Pro
       system: res.data.system,
       java: res.data.java,
       processes: res.data.processes,
+      publicAddress: res.data.publicAddress || null,
     };
   } catch (err: any) {
     const code = err?.code || "";
@@ -160,9 +170,11 @@ export const probeNode = async (node: NodeRecord, timeoutMs = 4000): Promise<Pro
 
 export const createNode = async (input: Partial<NodeRecord>) => {
   const nodes = await readJSON<NodeRecord[]>(FILE, []);
-  const host = String(input.ip || "").trim();
-  const port = Number(input.port) || 31120;
-  if (nodes.some((n) => n.ip === host && Number(n.port) === port)) {
+  const host = String(input.ip || "").trim() || "0.0.0.0";
+  const port = Number(input.port) || 6768;
+  // "0.0.0.0" means "address not known yet". Several nodes waiting for their
+  // agents to check in must not collide with each other.
+  if (host !== "0.0.0.0" && nodes.some((n) => n.ip === host && Number(n.port) === port)) {
     throw new Error(`A node already exists at ${host}:${port}`);
   }
   const record: NodeRecord = {
@@ -177,6 +189,7 @@ export const createNode = async (input: Partial<NodeRecord>) => {
     memoryMb: Number(input.memoryMb) || 8192,
     diskMb: Number(input.diskMb) || 102400,
     location: input.location || "Default",
+    protocol: input.protocol === "https" ? "https" : "http",
     status: "offline",
     lastSeen: null,
     createdAt: nowISO(),

@@ -229,6 +229,7 @@ transitions. The whole interface uses a single, consistent design system
 - Capacity (cores, RAM, disk) is adopted from the agent on first contact, so
   the value shown is the machine's real hardware, not a guess.
 - Agent tokens can be rotated in place from the node card.
+- Adding a node takes one field: name the machine, press **Generate token**, and run the single command it prints. The token is shown in full once (copy it then), and the agent reports its own public address, port and capacity back to the panel.
 - Full install guide, firewall rules and a failure-message table: [`agent/README.md`](agent/README.md).
 
 ### Panel settings

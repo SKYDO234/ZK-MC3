@@ -55,6 +55,19 @@ type Probe = {
   system?: any;
   java?: any;
   processes?: any[];
+  /** What the agent says its own reachable address is. */
+  publicAddress?: AgentAddress | null;
+};
+
+type AgentAddress = {
+  host: string;
+  port: number;
+  protocol: string;
+  localIp?: string;
+  publicIp?: string | null;
+  codespace?: boolean;
+  portForwardUrl?: string | null;
+  source?: string;
 };
 
 /** The agent port the installer uses (`AGENT_PORT`, default 6768). */
@@ -65,12 +78,17 @@ const emptyForm = {
   hostname: "",
   ip: "",
   port: DEFAULT_AGENT_PORT,
+  protocol: "http" as "http" | "https",
   cpuCores: "",
   memoryMb: "",
   diskMb: "",
   location: "",
   description: "",
 };
+
+/** The one-line installer, published with the panel itself. */
+const INSTALLER_URL = `${window.location.origin}/install-agent.sh`;
+
 
 /** A three-step progress row used inside the setup sheet. */
 const Step: React.FC<{
@@ -146,11 +164,26 @@ export const NodesPage: React.FC = () => {
   const [form, setForm] = useState({ ...emptyForm });
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [agentToken, setAgentToken] = useState("");
+  const [detected, setDetected] = useState<AgentAddress | null>(null);
+  const [touchedIp, setTouchedIp] = useState(false);
   const [busy, setBusy] = useState("");
   const [detail, setDetail] = useState<any | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
 
   const nodes = data || [];
+
+  /**
+   * The base URL a *remote* machine should use to reach this panel. Derived
+   * from the app's own origin by default, but editable, because a panel on
+   * localhost cannot hand a public URL to a VPS.
+   */
+  const [panelBase, setPanelBase] = useState(
+    () => localStorage.getItem("zk.panelBase") || window.location.origin
+  );
+  const updatePanelBase = (value: string) => {
+    setPanelBase(value);
+    localStorage.setItem("zk.panelBase", value);
+  };
 
   useEffect(() => {
     // Keep the open detail sheet in sync with the latest poll.
@@ -164,10 +197,32 @@ export const NodesPage: React.FC = () => {
     setProbe(null);
     setCreatedId(null);
     setAgentToken("");
+    setDetected(null);
+    setTouchedIp(false);
+    setIsWaiting(false);
     setWizardOpen(true);
   };
 
   const set = (key: string, value: any) => setForm((f) => ({ ...f, [key]: value }));
+
+  /** The node we just created, as the latest poll sees it. */
+  const live = createdId ? nodes.find((n) => n.id === createdId) : null;
+  const [isWaiting, setIsWaiting] = useState(false);
+
+  // While the sheet is open and the node has not checked in, look again sooner
+  // than the global poll — this is the moment the operator is watching.
+  useEffect(() => {
+    if (!isWaiting || !createdId || live?.status === "online") return;
+    const timer = setInterval(async () => {
+      await reload();
+      const fresh = await api<any[]>("/nodes").catch(() => null);
+      if (fresh?.find((n) => n.id === createdId)?.status === "online") {
+        setIsWaiting(false);
+        success("Node connected", "The agent called in — it is online now.");
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [isWaiting, createdId, live?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const testConnection = async () => {
     if (!form.ip.trim()) return error("Enter the node's IP or hostname first");
@@ -179,6 +234,19 @@ export const NodesPage: React.FC = () => {
         body: { ...form, token: agentToken },
       });
       setProbe(result.probe);
+      if (result.probe.publicAddress?.host) {
+        const address = result.probe.publicAddress;
+        setDetected(address);
+        // Never clobber an address the operator typed deliberately.
+        if (!touchedIp) {
+          setForm((f) => ({
+            ...f,
+            ip: address.host,
+            port: address.port || f.port,
+            protocol: address.protocol === "https" ? "https" : "http",
+          }));
+        }
+      }
     } catch (err: any) {
       error("Test failed", err.message);
     } finally {
@@ -188,16 +256,24 @@ export const NodesPage: React.FC = () => {
 
   const createAndInstall = async () => {
     if (!form.name.trim()) return error("Give the node a name");
-    if (!form.ip.trim()) return error("Enter the node's IP or hostname");
     setSaving(true);
     try {
-      const node = await api<any>("/nodes", { method: "POST", body: form });
+      const node = await api<any>("/nodes", {
+        method: "POST",
+        body: {
+          ...form,
+          // The address is discovered by the agent; until then it is a
+          // placeholder that is corrected the moment the node checks in.
+          ip: form.ip.trim(),
+          port: form.port || DEFAULT_AGENT_PORT,
+        },
+      });
       setCreatedId(node.id);
       setDetail(null);
-      const token = await api<{ token: string }>(`/nodes/${node.id}/token`);
-      setAgentToken(token.token);
-      await navigator.clipboard.writeText(installCommand(token.token, form.ip, form.port)).catch(() => {});
-      success("Node registered", "It turns online as soon as the agent starts.");
+      const issued = await api<{ token: string }>(`/nodes/${node.id}/token`);
+      setAgentToken(issued.token);
+      await copyToClipboard(installCommand(issued.token, panelBase)).catch(() => {});
+      success("Node reserved", "Paste the command on that machine — it connects itself.");
       reload();
     } catch (err: any) {
       error("Could not add node", err.message);
@@ -248,8 +324,9 @@ export const NodesPage: React.FC = () => {
     if (!ok) return;
     try {
       const result = await api<{ token: string }>(`/nodes/${node.id}/token/rotate`, { method: "POST" });
-      await copyToClipboard(installCommand(result.token, node.ip, node.port));
-      success("Token rotated", "The new install command is on your clipboard.");
+      setAgentToken(result.token);
+      await copyToClipboard(installCommand(result.token, panelBase));
+      success("Token rotated", "The new token is shown above and its command is on your clipboard.");
       reload();
     } catch (err: any) {
       error("Rotate failed", err.message);
@@ -468,109 +545,201 @@ export const NodesPage: React.FC = () => {
         width="max-w-3xl"
         footer={
           createdId ? (
-            <Button variant="primary" onClick={() => setWizardOpen(false)}>
-              Done
-            </Button>
+            <>
+              <Button onClick={() => setWizardOpen(false)}>Close</Button>
+              <Button variant="primary" icon={<RefreshCw size={12} />} onClick={reload}>
+                Re-check status
+              </Button>
+            </>
           ) : (
             <>
               <Button onClick={() => setWizardOpen(false)}>Cancel</Button>
-              <Button icon={<PlugZap size={13} />} loading={testing} onClick={testConnection}>
-                Test connection
-              </Button>
+              {probe && (
+                <Button icon={<PlugZap size={13} />} loading={testing} onClick={testConnection}>
+                  Test address
+                </Button>
+              )}
               <Button variant="primary" loading={saving} icon={<Plus size={13} />} onClick={createAndInstall}>
-                Add node
+                Generate token
               </Button>
             </>
           )
         }
       >
         <div className="space-y-1">
-          <Step index={1} title="Locate the machine" done={Boolean(probe?.reachable || createdId)} active={!probe && !createdId}>
+          <Step index={1} title="Name the machine" done={Boolean(createdId)} active={!createdId}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Node name" required>
-                <input className="zk-input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="EU-2" />
-              </Field>
-              <Field label="Location">
-                <input className="zk-input" value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="Frankfurt, DE" />
-              </Field>
-              <Field label="Public IP or hostname" required hint="The address this panel uses to reach the node.">
                 <input
-                  className="zk-input font-mono"
-                  value={form.ip}
-                  onChange={(e) => set("ip", e.target.value)}
-                  placeholder="203.0.113.10"
-                  spellCheck={false}
+                  className="zk-input"
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  placeholder="EU-2"
+                  autoFocus
                 />
               </Field>
-              <Field label="Agent port" hint="Default 31120. Open it in the node's firewall.">
+              <Field label="Location" hint="Optional — shown on the node card.">
                 <input
-                  type="number"
-                  className="zk-input font-mono"
-                  value={form.port}
-                  onChange={(e) => set("port", Number(e.target.value))}
+                  className="zk-input"
+                  value={form.location}
+                  onChange={(e) => set("location", e.target.value)}
+                  placeholder="Frankfurt, DE"
                 />
               </Field>
             </div>
             <p className="mt-2 text-[0.64rem] leading-relaxed text-zinc-600">
-              Capacity is detected from the machine automatically once the agent connects — no need to type RAM or cores.
+              That is all you type. The agent reports its own public IP, port and capacity the moment it connects.
             </p>
-            {probe && <div className="mt-2"><ProbeResult probe={probe} /></div>}
           </Step>
 
-          <Step index={2} title="Install the agent on that machine" done={Boolean(createdId)} active={Boolean(probe?.reachable && !createdId)}>
+          <Step index={2} title="Run one command on that machine" done={Boolean(createdId) && false} active={Boolean(createdId)}>
             {createdId ? (
-              <div className="space-y-2">
-                <p className="text-[0.68rem] leading-relaxed text-zinc-500">
-                  Paste this into the node's shell as root. It copies the command to your clipboard.
-                </p>
+              <div className="space-y-3">
+                {/* ── the token, whole, once ─────────────────────────────── */}
+                <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-amber-300/80">
+                      <KeyRound size={10} /> Agent token
+                    </span>
+                    <Badge tone="warn">shown once</Badge>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 select-all break-all rounded border border-white/[0.08] bg-black/45 px-2 py-1.5 font-mono text-[0.68rem] text-amber-100">
+                      {agentToken || "generating…"}
+                    </code>
+                    <Button
+                      size="sm"
+                      icon={<Copy size={11} />}
+                      onClick={() => copyToClipboard(agentToken).then(() => success("Token copied"))}
+                      disabled={!agentToken}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                  <p className="mt-1.5 text-[0.6rem] leading-relaxed text-amber-200/60">
+                    Keep this. It is not shown again — reopen the node and rotate it if you lose it.
+                  </p>
+                </div>
+
+                {/* ── one command, nothing to edit ──────────────────────── */}
                 <div className="relative">
-                  <pre className="zk-console max-h-[132px] overflow-auto !text-[0.62rem] leading-relaxed">
-{installCommand(agentToken, form.ip, form.port)}
+                  <pre className="zk-console max-h-[120px] overflow-auto !text-[0.64rem] leading-relaxed">
+{installCommand(agentToken, panelBase)}
                   </pre>
                   <button
                     type="button"
-                    onClick={() => copyToClipboard(installCommand(agentToken, form.ip, form.port)).then(() => success("Copied"))}
+                    onClick={() =>
+                      copyToClipboard(installCommand(agentToken, panelBase)).then(() => success("Command copied"))
+                    }
                     className="absolute right-2 top-2 rounded border border-white/10 bg-black/70 p-1.5 text-zinc-400 transition hover:text-white"
                     title="Copy command"
                   >
                     <Copy size={11} />
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" icon={<Copy size={12} />} onClick={() => copyToClipboard(installCommand(agentToken, form.ip, form.port)).then(() => success("Copied"))}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    icon={<Copy size={12} />}
+                    onClick={() =>
+                      copyToClipboard(installCommand(agentToken, panelBase)).then(() => success("Command copied"))
+                    }
+                  >
                     Copy command
                   </Button>
-                  <Button size="sm" icon={<RefreshCw size={12} />} onClick={reload}>
-                    Re-check status
+                  <Button size="sm" icon={<RefreshCw size={12} />} onClick={() => setIsWaiting(true)}>
+                    {isWaiting ? "Waiting for the agent…" : "Wait for it to connect"}
                   </Button>
                 </div>
-                <p className="text-[0.62rem] leading-relaxed text-zinc-600">
-                  Run this on the node itself, then press <span className="text-zinc-400">Re-check status</span>. The
-                  agent must accept TCP <span className="font-mono text-zinc-400">{form.port}</span> from this panel's
-                  IP — open it in the node's firewall. The token can be rotated later from the node card.
+                <p className="text-[0.61rem] leading-relaxed text-zinc-600">
+                  The command downloads <span className="font-mono text-zinc-400">install-agent.sh</span> from this
+                  panel, so the token already knows where to dial back. It prints the node's real public address,
+                  installs Node if missing, and starts the agent as a service.
                 </p>
               </div>
             ) : (
               <p className="text-[0.68rem] leading-relaxed text-zinc-500">
-                Add the node to reserve its token, then run the generated command on that machine. The sheet fills in
-                the exact token and port — nothing to type by hand.
+                Press <span className="text-zinc-300">Generate token</span> and you get the full token plus the exact
+                command to run — no IP hunting, no manual port juggling.
               </p>
             )}
           </Step>
 
-          <Step index={3} title="Watch it come online" done={nodes.find((n) => n.id === createdId)?.status === "online"} active={Boolean(createdId)}>
+          <Step
+            index={3}
+            title="The node connects itself"
+            done={nodes.find((n) => n.id === createdId)?.status === "online"}
+            active={Boolean(createdId)}
+          >
             {createdId ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/[0.07] bg-black/25 px-3 py-2">
-                <span className={"h-1.5 w-1.5 rounded-full " + (nodes.find((n) => n.id === createdId)?.status === "online" ? "bg-emerald-400" : "bg-amber-400 animate-pulse")} />
-                <span className="text-[0.7rem] text-zinc-300">
-                  {nodes.find((n) => n.id === createdId)?.status === "online"
-                    ? "Agent connected — the node is live."
-                    : "Waiting for the agent to check in…"}
-                </span>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/[0.07] bg-black/25 px-3 py-2">
+                  <span
+                    className={
+                      "h-1.5 w-1.5 rounded-full " +
+                      (live
+                        ? "bg-emerald-400"
+                        : "bg-amber-400 animate-pulse")
+                    }
+                  />
+                  <span className="text-[0.7rem] text-zinc-300">
+                    {live
+                      ? `Connected — the panel detected ${live.hostInfo?.cpuModel || "this machine"} at ${live.ip}:${live.port}.`
+                      : "Waiting for the agent to call in…"}
+                  </span>
+                </div>
+
+                {/* What the node says about itself, when it is online. */}
+                {live?.hostInfo && (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      ["Address", `${live.ip}`],
+                      ["Port", String(live.port)],
+                      ["Cores", String(live.capacity?.cpuCores ?? "—")],
+                      ["Memory", formatMb(live.capacity?.memoryMb ?? 0)],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+                        <p className="text-[0.52rem] uppercase tracking-[0.14em] text-zinc-600">{label}</p>
+                        <p className="truncate font-mono text-[0.68rem] text-zinc-300">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {live?.ip && live.ip !== "0.0.0.0" && (
+                  <p className={
+                    "text-[0.61rem] leading-relaxed " +
+                    (live.status === "online" ? "text-emerald-300/70" : "text-zinc-600")
+                  }>
+                    {live.status === "online"
+                      ? "Nothing else to do. The address above was reported by the agent itself."
+                      : "If it stays offline, the panel cannot reach that address — check the firewall and the panel URL below."}
+                  </p>
+                )}
+
+                {/* Where the installer came from — must be reachable by the node. */}
+                <details className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
+                  <summary className="cursor-pointer text-[0.62rem] text-zinc-500">
+                    Panel address used by the installer
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    <input
+                      className="zk-input font-mono !text-[0.68rem]"
+                      value={panelBase}
+                      onChange={(e) => updatePanelBase(e.target.value)}
+                      placeholder="http://203.0.113.5:31120"
+                      spellCheck={false}
+                    />
+                    <p className="text-[0.58rem] leading-relaxed text-zinc-600">
+                      Rendered from this browser's origin. If the node cannot reach it (localhost, or a Codespace
+                      URL behind a private port), set the panel's public URL here — the command updates instantly.
+                    </p>
+                  </div>
+                </details>
               </div>
             ) : (
               <p className="text-[0.68rem] leading-relaxed text-zinc-500">
-                Status refreshes automatically; you can close this and watch from the card.
+                Status refreshes on its own. You can close this sheet and watch the card instead.
               </p>
             )}
           </Step>
@@ -661,8 +830,8 @@ export const NodesPage: React.FC = () => {
                         onClick={async () => {
                           try {
                             const result = await api<{ token: string }>(`/nodes/${detail.id}/token`);
-                            await copyToClipboard(installCommand(result.token, detail.ip, detail.port));
-                            success("Install command copied");
+                            await copyToClipboard(installCommand(result.token, panelBase));
+                            success("Install command copied", "It carries this node's token.");
                           } catch (err: any) {
                             error("Could not fetch token", err.message);
                           }
@@ -697,11 +866,15 @@ ZK_PANEL_TOKEN=<token> PORT=${detail.port} node agent/agent.cjs`}
 };
 
 /** One copy-paste block that both installs and starts the agent. */
-const installCommand = (token: string, ip: string, port: number | string) =>
-  `# On ${ip}, as root:
-curl -fsSL https://raw.githubusercontent.com/SKYDO234/ZK-MC3/main/install.sh -o install.sh
-sudo ZK_PANEL_TOKEN=${token || "<token>"} AGENT_PORT=${port} bash install.sh --agent`;
+/**
+ * The whole node setup, in one line. The token carries the panel's own address,
+ * so the agent dials back to whoever issued it — nothing else to fill in, and
+ * no way to typo the IP.
+ */
+const installCommand = (token: string, panelBase: string) =>
+  `curl -fsSL ${panelBase}/install-agent.sh | sudo bash -s -- ${token || "<token>"}`;
 
-/** The same thing, for a host that already has the repository checked out. */
+
+/** Fallback for hosts that already have the repository. */
 const directCommand = (token: string, port: number | string) =>
   `ZK_PANEL_TOKEN=${token || "<token>"} PORT=${port} node agent/agent.cjs`;
