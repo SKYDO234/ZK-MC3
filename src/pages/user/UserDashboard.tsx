@@ -71,11 +71,11 @@ export const UserDashboard: React.FC = () => {
   if (loading) return <PageSkeleton />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         icon={<Gauge size={20} />}
-        title={`Welcome back, ${user?.name?.split(" ")[0] || user?.username}`}
-        subtitle={`Here's what's happening across your Minecraft infrastructure today.`}
+        title="Dashboard"
+        subtitle={`Welcome back, ${user?.name?.split(" ")[0] || user?.username}. Here's your live server overview.`}
         actions={
           <>
             <Button icon={<RefreshCw size={14} />} onClick={reload} size="sm">
@@ -86,7 +86,7 @@ export const UserDashboard: React.FC = () => {
               icon={<Plus size={15} />}
               onClick={() => navigate(settings.allowUserServerCreation ? "/admin/create-server" : "/servers")}
             >
-              New server
+              New Server
             </Button>
           </>
         }
@@ -97,9 +97,9 @@ export const UserDashboard: React.FC = () => {
         <StatCard
           label="Total servers"
           value={counts.total}
-          icon={<Server size={17} />}
-          accent
-          hint={`${counts.online} online · ${counts.offline} offline`}
+          icon={<Server size={14} />}
+          tone="blue"
+          hint={`In your account`}
           footer={
             <div className="flex gap-1">
               {servers.slice(0, 8).map((s: any) => (
@@ -113,22 +113,25 @@ export const UserDashboard: React.FC = () => {
           }
         />
         <StatCard
-          label="Running servers"
+          label="Running"
           value={counts.online}
-          icon={<PlayCircle size={17} />}
-          hint={counts.online > 0 ? "Serving players right now" : "All servers are idle"}
+          icon={<PlayCircle size={14} />}
+          tone="green"
+          hint={`Active processes`}
         />
         <StatCard
-          label="Stopped servers"
+          label="Offline"
           value={counts.offline}
-          icon={<PauseCircle size={17} />}
-          hint={counts.installing ? `${counts.installing} installing` : "No pending installs"}
+          icon={<PauseCircle size={14} />}
+          tone="red"
+          hint={counts.installing ? `${counts.installing} installing` : "Not running"}
         />
         <StatCard
           label="RAM allocation"
           value={formatMb(usage.ramAllocated)}
-          icon={<MemoryStick size={17} />}
-          hint={`${formatMb(usage.ramUsed)} actively used`}
+          icon={<MemoryStick size={14} />}
+          tone="brand"
+          hint={`${formatMb(usage.ramUsed)} in use`}
           footer={<Progress value={pct(usage.ramUsed, Math.max(1, usage.ramAllocated))} />}
         />
       </div>

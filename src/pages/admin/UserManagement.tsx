@@ -230,7 +230,7 @@ export const UserManagement: React.FC = () => {
                   <tr key={u.id}>
                     <td>
                       <div className="flex items-center gap-2.5">
-                        <span className="flex h-8 w-8 flex-none items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-[0.62rem] font-bold text-black/80">
+                        <span className="flex h-8 w-8 flex-none items-center justify-center overflow-hidden rounded-lg bg-white/[0.09] text-[0.62rem] font-bold text-zinc-200">
                           {u.avatar ? <img src={u.avatar} alt="" className="h-full w-full object-cover" /> : initials(u.name)}
                         </span>
                         <div className="min-w-0">

@@ -8,7 +8,7 @@ export const BrandMark: React.FC<{ size?: number; className?: string }> = ({ siz
   return (
     <div
       className={clsx(
-        "relative flex flex-none items-center justify-center overflow-hidden rounded-xl border border-brand-500/35 bg-gradient-to-br from-[#1b1207] to-[#0a0a0b] shadow-[0_0_24px_-8px_rgba(255,122,24,0.75)]",
+        "relative flex flex-none items-center justify-center overflow-hidden rounded-lg border border-white/[0.09] zk-surface",
         className
       )}
       style={{ width: size, height: size }}
@@ -64,7 +64,7 @@ export const BrandHero: React.FC<{ className?: string }> = ({ className }) => {
         <img
           src={settings.logoUrl || "/logo-icon.png"}
           alt={`${settings.panelName} logo`}
-          className="h-24 w-24 rounded-2xl border border-brand-500/30 object-cover shadow-[0_24px_60px_-24px_rgba(255,122,24,0.8)]"
+          className="h-24 w-24 rounded-xl border border-white/[0.09] object-cover"
         />
       </div>
       <h1 className="mt-5 font-display text-2xl font-extrabold tracking-tight text-zinc-50 sm:text-[1.7rem]">

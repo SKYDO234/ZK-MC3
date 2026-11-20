@@ -122,7 +122,7 @@ export const AccountPage: React.FC = () => {
         <Card className="h-fit">
           <div className="flex flex-col items-center text-center">
             <div className="relative">
-              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-xl font-bold text-black/80">
+              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-white/[0.09] text-xl font-bold text-zinc-200">
                 {profile.avatar ? (
                   <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
                 ) : (

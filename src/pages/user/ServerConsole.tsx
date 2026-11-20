@@ -1,54 +1,52 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Terminal as TerminalIcon,
+  TerminalSquare,
   Cpu,
   MemoryStick,
   HardDrive,
-  Play,
-  Square,
-  RotateCw,
-  Power,
-  Wifi,
-  Clock,
   ArrowDown,
   ArrowUp,
-  ChevronRight,
   Trash2,
   Download,
   Search,
   X,
   Copy,
   Check,
-  Signal,
+  Activity,
+  ScrollText,
+  Radio,
+  Users,
+  CircleSlash,
+  Clock,
+  Loader2,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
-import { api, apiDownload } from "../../lib/api";
+import { api } from "../../lib/api";
 import { useServerSocket } from "../../lib/hooks";
 import { useToast } from "../../context/ToastContext";
 import { formatUptime } from "../../lib/format";
-import { Switch } from "../../components/ui";
 
 /**
- * Server console — JTG-parity layout.
+ * Server console — the control deck.
  * ---------------------------------------------------------------------------
- * Structure matches the JTG panel exactly:
- *   • status orb + server name, with round Start / Restart / Stop / Kill buttons
- *   • a tall monospace console beside a column of stat tiles
- *     (address, uptime, CPU, memory, disk, network in/out)
- *   • three area charts underneath: CPU %, memory MB, network KB/s
+ * Three columns, one instrument panel:
  *
- * Numbers are the node's real measurements; nothing is synthesised.
+ *   ┌──────────────┬────────────────────┬──────────────────────────────┐
+ *   │  TELEMETRY   │  PLAYERS           │  SYSTEM CONSOLE              │
+ *   │  gauges      │  live roster       │  stream + quick commands     │
+ *   └──────────────┴────────────────────┴──────────────────────────────┘
+ *
+ * The rail (server tile, status, menu) is drawn by ServerView so the same
+ * navigation stays visible on every tab. Everything here reads real process
+ * numbers — nothing is faked.
  */
 
 const ANSI = /\x1B\[[0-9;?]*[ -/]*[@-~]/g;
 const stripAnsi = (value: string) => value.replace(ANSI, "");
 
 const pad = (n: number) => String(n).padStart(2, "0");
-const clock = (iso?: string | null) => {
-  const d = iso ? new Date(iso) : new Date();
-  if (Number.isNaN(d.getTime())) return "--:--:--";
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-};
+const clockTime = (date = new Date()) =>
+  `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 
 const formatMb = (mb: number) => {
   if (!mb) return "0 MB";
@@ -56,15 +54,9 @@ const formatMb = (mb: number) => {
   return `${(mb / 1024).toFixed(2)} GB`;
 };
 
-const formatRateKb = (kbPerSecond: number) => {
-  if (!kbPerSecond) return "0 KB/s";
-  if (kbPerSecond < 1024) return `${kbPerSecond.toFixed(1)} KB/s`;
-  return `${(kbPerSecond / 1024).toFixed(2)} MB/s`;
-};
-
 const formatRate = (bytesPerSecond: number) => {
-  if (!bytesPerSecond) return "0 KB/s";
-  if (bytesPerSecond < 1024) return `${bytesPerSecond} B/s`;
+  if (!bytesPerSecond) return "0 B/s";
+  if (bytesPerSecond < 1024) return `${Math.round(bytesPerSecond)} B/s`;
   if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
   return `${(bytesPerSecond / 1024 / 1024).toFixed(2)} MB/s`;
 };
@@ -81,13 +73,33 @@ const classify = (raw: string): LineKind => {
   return "info";
 };
 
+const LINE_TONE: Record<LineKind, string> = {
+  info: "text-zinc-400",
+  warn: "text-amber-300/90",
+  error: "text-rose-400",
+  input: "text-brand-300",
+  system: "text-sky-300/90",
+  success: "text-emerald-300",
+};
+
+const LINE_MARK: Record<LineKind, string> = {
+  info: "",
+  warn: "▲",
+  error: "✕",
+  input: "›",
+  system: "◆",
+  success: "✓",
+};
+
 const LOG_CAP = 2000;
-const CHART_CAP = 30;
+const SPARK_CAP = 40;
+
+/** Commands offered as one-click chips under the stream. */
+const QUICK_COMMANDS = ["list", "seed", "save-all", "whitelist list", "stop"];
 
 interface StatsPayload {
   running: boolean;
   isRunning?: boolean;
-  attached?: boolean;
   pid: number | null;
   startedAt: string | null;
   uptimeSeconds: number;
@@ -101,95 +113,101 @@ interface StatsPayload {
   limitRam: number;
   limitCpu: number;
   limitDisk: number;
-  ramPercent?: number;
-  cpuPercent?: number;
-  diskPercent?: number;
   status: string;
   address: string;
   listeningPorts?: number[];
 }
 
-/* --------------------------------------------------------------- JTG tiles */
+/* ------------------------------------------------------------- primitives */
 
-const StatTile: React.FC<{
+/** Circular gauge: one arc, the value in the middle, no decoration. */
+const Gauge: React.FC<{ value: number; tone?: string; size?: number }> = ({
+  value,
+  tone = "#fafafa",
+  size = 44,
+}) => {
+  const clamped = Math.max(0, Math.min(100, value || 0));
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  return (
+    <div className="relative flex-none" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={tone}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference - (clamped / 100) * circumference}
+          className="transition-[stroke-dashoffset] duration-700"
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center font-mono text-[0.56rem] font-semibold text-zinc-400">
+        {Math.round(clamped)}%
+      </span>
+    </div>
+  );
+};
+
+/** A telemetry tile: gauge, label + big value + limit, and a sparkline. */
+const TelemetryTile: React.FC<{
   icon: React.ReactNode;
   label: string;
-  value: React.ReactNode;
-  dim?: React.ReactNode;
-}> = ({ icon, label, value, dim }) => (
-  <div className="group relative flex min-h-[84px] flex-col justify-center overflow-hidden rounded-[10px] bg-[#131010] py-4 pl-[92px] pr-[18px] transition-colors hover:bg-[#1c1818]">
-    <div className="pointer-events-none absolute left-[14px] top-1/2 -translate-y-1/2 -rotate-[20deg] text-[#242121] opacity-90 transition-all duration-300 group-hover:scale-110 group-hover:text-[#2f2a2a]">
-      {icon}
-    </div>
-    <div className="relative z-10 mb-1.5 text-[13px] text-[#9a9a9a]">{label}</div>
-    <div className="relative z-10 overflow-hidden text-ellipsis whitespace-nowrap text-[17px] font-bold text-white">
-      {value}
-      {dim && <span className="ml-1 text-[13px] font-normal text-[#6f6f6f]">{dim}</span>}
-    </div>
-  </div>
-);
-
-const ChartCard: React.FC<{
-  title: string;
+  value: string;
+  unit?: string;
+  limit?: string;
+  percent: number;
+  tone: string;
   data: Array<Record<string, number>>;
   dataKey: string;
-  dataKey2?: string;
-  max?: number;
-  colors: [string, string];
-  icons?: React.ReactNode;
-}> = ({ title, data, dataKey, dataKey2, max, colors, icons }) => {
+  max: number;
+}> = ({ icon, label, value, unit, limit, percent, tone, data, dataKey, max }) => {
   const padded = useMemo(() => {
     const rows = [...data];
-    while (rows.length < CHART_CAP) {
-      rows.unshift({ [dataKey]: 0, ...(dataKey2 ? { [dataKey2]: 0 } : {}) });
+    while (rows.length < SPARK_CAP) {
+      rows.unshift({ [dataKey]: 0 });
     }
     return rows;
-  }, [data, dataKey, dataKey2]);
+  }, [data, dataKey]);
 
   return (
-    <div className="rounded-[10px] bg-[#131010] px-5 py-[18px]">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-[15px] font-bold text-white">{title}</div>
-        {icons && <div className="flex items-center gap-[9px]">{icons}</div>}
+    <div className="flex items-center gap-3 border-b border-white/[0.05] px-3.5 py-3 last:border-b-0">
+      <Gauge value={percent} tone={tone} />
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1.5 text-[0.58rem] font-bold uppercase tracking-[0.14em] text-zinc-600">
+          <span className="text-zinc-700">{icon}</span>
+          {label}
+        </p>
+        <p className="mt-0.5 truncate font-mono text-[1.02rem] font-semibold leading-tight text-zinc-100">
+          {value}
+          {unit && <span className="ml-0.5 text-[0.62rem] font-medium text-zinc-500">{unit}</span>}
+        </p>
+        {limit && <p className="truncate font-mono text-[0.56rem] text-zinc-700">{limit}</p>}
       </div>
-      <div className="relative h-[190px]">
+      <div className="h-9 w-[74px] flex-none">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={padded} margin={{ top: 0, left: 0, right: 0, bottom: 0 }}>
+          <AreaChart data={padded} margin={{ top: 2, left: 0, right: 0, bottom: 0 }}>
             <defs>
-              <linearGradient id={`fill-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={colors[0]} stopOpacity={0.03} />
+              <linearGradient id={`tile-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={tone} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={tone} stopOpacity={0} />
               </linearGradient>
-              {dataKey2 && (
-                <linearGradient id={`fill-${dataKey2}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={colors[1]} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={colors[1]} stopOpacity={0.03} />
-                </linearGradient>
-              )}
             </defs>
             <YAxis domain={[0, max || "auto"]} hide />
             <Area
               type="monotone"
               dataKey={dataKey}
-              stroke={colors[0]}
-              strokeWidth={2}
-              fillOpacity={1}
-              fill={`url(#fill-${dataKey})`}
+              stroke={tone}
+              strokeWidth={1.4}
+              fill={`url(#tile-${dataKey})`}
               isAnimationActive={false}
               dot={false}
             />
-            {dataKey2 && (
-              <Area
-                type="monotone"
-                dataKey={dataKey2}
-                stroke={colors[1]}
-                strokeWidth={2}
-                fillOpacity={1}
-                fill={`url(#fill-${dataKey2})`}
-                isAnimationActive={false}
-                dot={false}
-              />
-            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -197,13 +215,13 @@ const ChartCard: React.FC<{
   );
 };
 
-/* ------------------------------------------------------------ main console */
+/* ------------------------------------------------------------- the console */
 
-export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) => void; onRefresh?: () => void }> = ({
-  server,
-  onStatus,
-  onRefresh,
-}) => {
+export const ServerConsole: React.FC<{
+  server: any;
+  onStatus?: (status: string) => void;
+  onRefresh?: () => void;
+}> = ({ server, onStatus, onRefresh }) => {
   const { success, error } = useToast();
   const [lines, setLines] = useState<string[]>([]);
   const [command, setCommand] = useState("");
@@ -212,23 +230,24 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
   const [autoScroll, setAutoScroll] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
   const [sending, setSending] = useState(false);
-  const [busy, setBusy] = useState("");
   const [filter, setFilter] = useState("");
   const [showFilter, setShowFilter] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [compact, setCompact] = useState(false);
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [cpuHist, setCpuHist] = useState<Array<Record<string, number>>>([]);
   const [ramHist, setRamHist] = useState<Array<Record<string, number>>>([]);
-  const [netHist, setNetHist] = useState<Array<Record<string, number>>>([]);
-  const [tick, setTick] = useState(0);
+  const [players, setPlayers] = useState<string[]>([]);
+  const [now, setNow] = useState(() => clockTime());
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const startedAtRef = useRef<string | null | undefined>(server?.startedAt);
 
   const isOnline = stats?.isRunning ?? stats?.running ?? server.status === "online";
+  const isTransitioning = stats?.status === "starting" || stats?.status === "stopping" || server.status === "installing";
 
-  /* ---- initial backlog ---- */
+  /* ---- backlog ---- */
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -261,24 +280,14 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     },
   });
 
-  /* ---- stats polling (JTG: every 3s, paused when the tab is hidden) ---- */
+  /* ---- telemetry ---- */
   const pullStats = useCallback(async () => {
     if (document.visibilityState === "hidden") return;
     try {
       const data = await api<StatsPayload>(`/servers/${server.id}/stats`);
       setStats(data);
-      setCpuHist((prev) => [...prev, { cpu: Math.round((data.cpu || 0) * 10) / 10 }].slice(-CHART_CAP));
-      setRamHist((prev) => [...prev, { ram: Math.round(data.ram || 0) }].slice(-CHART_CAP));
-      setNetHist((prev) =>
-        [
-          ...prev,
-          {
-            netIn: Math.round(((data.netInRate || 0) / 1024) * 10) / 10,
-            netOut: Math.round(((data.netOutRate || 0) / 1024) * 10) / 10,
-          },
-        ].slice(-CHART_CAP)
-      );
-      // A new session (restart) starts a fresh console, exactly like JTG.
+      setCpuHist((prev) => [...prev, { cpu: Math.round((data.cpu || 0) * 10) / 10 }].slice(-SPARK_CAP));
+      setRamHist((prev) => [...prev, { ram: Math.round(data.ram || 0) }].slice(-SPARK_CAP));
       if (data.startedAt && startedAtRef.current && data.startedAt !== startedAtRef.current) {
         setLines([]);
       }
@@ -294,19 +303,34 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     return () => window.clearInterval(timer);
   }, [pullStats]);
 
-  /* ---- uptime ticker ---- */
+  /* ---- roster ---- */
+  const pullPlayers = useCallback(async () => {
+    try {
+      const data = await api<{ onlinePlayers?: string[] }>(`/servers/${server.id}/players`);
+      setPlayers(data.onlinePlayers || []);
+    } catch {
+      /* keep the last roster */
+    }
+  }, [server.id]);
+
   useEffect(() => {
-    const timer = window.setInterval(() => setTick((t) => t + 1), 1000);
+    pullPlayers();
+    const timer = window.setInterval(pullPlayers, 10000);
+    return () => window.clearInterval(timer);
+  }, [pullPlayers]);
+
+  /* ---- clock ---- */
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(clockTime()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
   const uptimeSeconds = useMemo(() => {
-    void tick;
     if (!isOnline || !stats?.startedAt) return 0;
     const started = new Date(stats.startedAt).getTime();
     if (Number.isNaN(started)) return stats.uptimeSeconds || 0;
     return Math.max(0, Math.floor((Date.now() - started) / 1000));
-  }, [isOnline, stats?.startedAt, stats?.uptimeSeconds, tick]);
+  }, [isOnline, stats?.startedAt, stats?.uptimeSeconds, now]);
 
   /* ---- autoscroll ---- */
   useEffect(() => {
@@ -330,8 +354,8 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
   };
 
   /* ---- commands ---- */
-  const send = async () => {
-    const value = command.trim();
+  const send = async (raw?: string) => {
+    const value = (raw ?? command).trim();
     if (!value) return;
     if (!isOnline) {
       error("Server is offline", "Start the server before sending console commands.");
@@ -375,23 +399,6 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     }
   };
 
-  const act = async (action: "start" | "stop" | "restart" | "kill") => {
-    setBusy(action);
-    if (action === "start" || action === "restart") setLines([]);
-    try {
-      await api(`/servers/${server.id}/${action}`, { method: "POST" });
-      success(`Server ${action === "kill" ? "force-killed" : `${action}ed`}`, "Power action dispatched.");
-      setTimeout(() => {
-        pullStats();
-        onRefresh?.();
-      }, 1200);
-    } catch (err: any) {
-      error("Power action failed", err.message);
-    } finally {
-      setBusy("");
-    }
-  };
-
   const clearConsole = async () => {
     setLines([]);
     await api(`/servers/${server.id}/console/clear`, { method: "POST" }).catch(() => {});
@@ -408,7 +415,17 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
     }
   };
 
-  /* ---- render ---- */
+  const exportLogs = () => {
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${server.name.replace(/[^\w-]+/g, "-")}-console.log`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /* ---- derived ---- */
   const visible = useMemo(() => {
     if (!filter.trim()) return lines;
     const needle = filter.toLowerCase();
@@ -418,271 +435,334 @@ export const ServerConsole: React.FC<{ server: any; onStatus?: (status: string) 
   const cpuLimit = stats?.limitCpu || server.cpu || 1;
   const ramLimit = stats?.limitRam || server.ram || 1024;
   const diskLimit = stats?.limitDisk || server.disk || 0;
+  const cpuPct = Math.min(100, cpuLimit ? ((stats?.cpu || 0) / (cpuLimit * 100)) * 100 : 0);
+  const ramPct = Math.min(100, ramLimit ? ((stats?.ram || 0) / ramLimit) * 100 : 0);
+  const diskPct = Math.min(100, diskLimit ? ((stats?.disk || 0) / diskLimit) * 100 : 0);
 
-  const tone: Record<LineKind, string> = {
-    info: "text-zinc-300",
-    warn: "text-amber-300",
-    error: "text-red-400",
-    input: "text-brand-300",
-    system: "text-sky-300",
-    success: "text-emerald-300",
-  };
-
-  const statusLabel = isOnline
-    ? "Running"
-    : stats?.status === "starting"
-    ? "Starting"
-    : stats?.status === "stopping"
-    ? "Stopping"
-    : "Offline";
+  // A stable pseudo-id for the stream, derived from the server id — displayed
+  // so an operator can tell two consoles apart in a screenshot.
+  const streamId = useMemo(() => {
+    const raw = String(server.id || "").replace(/[^\w]/g, "").slice(-12);
+    return `${raw.slice(0, 4) || "srv"}-${raw.slice(4, 8) || "0000"}-${raw.slice(8, 12) || "0000"}`;
+  }, [server.id]);
 
   return (
-    <div className="space-y-5">
-      {/* ---------------------------------------------------- top bar (JTG) */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className={`h-[11px] w-[11px] shrink-0 rounded-full ${
-              isOnline
-                ? "bg-[#42e33d] shadow-[0_0_10px_rgba(66,227,61,0.55)]"
-                : stats?.status === "starting" || stats?.status === "stopping"
-                ? "animate-pulse bg-[#e8bd15]"
-                : "bg-[#524b4b]"
-            }`}
+    <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+      {/* ══════════════════════════ left column: telemetry + players ═══════ */}
+      <div className="flex flex-col gap-3">
+        <div className="zk-card overflow-hidden">
+          <div className="flex items-center justify-between gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
+            <span className="flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400">
+              <Activity size={11} className="text-brand-500" />
+              Telemetry
+            </span>
+            <span className="font-mono text-[0.56rem] text-zinc-700">
+              {isOnline ? formatUptime(uptimeSeconds) : "offline"}
+            </span>
+          </div>
+          <TelemetryTile
+            icon={<Cpu size={10} />}
+            label="CPU load"
+            value={isOnline ? (stats?.cpu ?? 0).toFixed(1) : "0.0"}
+            unit="%"
+            limit={`of ${(cpuLimit * 100).toFixed(0)}% allocated`}
+            percent={isOnline ? cpuPct : 0}
+            tone="#ff7a18"
+            data={cpuHist}
+            dataKey="cpu"
+            max={Math.max(10, cpuLimit * 100)}
           />
-          <h2 className="truncate text-xl font-extrabold text-white">{server.name}</h2>
-          <span className="rounded-full border border-white/[0.07] bg-white/[0.02] px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-zinc-400">
-            {statusLabel}
-          </span>
+          <TelemetryTile
+            icon={<MemoryStick size={10} />}
+            label="Memory"
+            value={isOnline ? formatMb(stats?.ram ?? 0).replace(/ (MB|GB)$/, "") : "0"}
+            unit={isOnline && (stats?.ram ?? 0) >= 1024 ? "GB" : "MB"}
+            limit={`xmx ${formatMb(ramLimit)}`}
+            percent={isOnline ? ramPct : 0}
+            tone="#38bdf8"
+            data={ramHist}
+            dataKey="ram"
+            max={ramLimit}
+          />
+          <TelemetryTile
+            icon={<HardDrive size={10} />}
+            label="Storage"
+            value={((stats?.disk ?? 0) / 1024).toFixed(1)}
+            unit="GB"
+            limit={`cap ${(diskLimit / 1024).toFixed(1)} GB`}
+            percent={diskPct}
+            tone="#a78bfa"
+            data={[]}
+            dataKey="disk"
+            max={100}
+          />
         </div>
 
-        <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-2.5">
-          <button
-            type="button"
-            onClick={() => act("start")}
-            disabled={isOnline || busy === "start" || server.status === "suspended"}
-            title="Start"
-            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#4CAF50] text-white transition-all hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
-          >
-            <Play size={18} className="fill-current" />
-          </button>
-          <button
-            type="button"
-            onClick={() => act("restart")}
-            disabled={!isOnline || busy === "restart"}
-            title="Restart"
-            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#e8bd15] text-white transition-all hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
-          >
-            <RotateCw size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => act("stop")}
-            disabled={!isOnline || busy === "stop"}
-            title="Graceful stop"
-            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#fb4242] text-white transition-all hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
-          >
-            <Square size={17} className="fill-current" />
-          </button>
-          <button
-            type="button"
-            onClick={() => act("kill")}
-            disabled={!isOnline || busy === "kill"}
-            title="Force kill (SIGKILL)"
-            className="flex h-[42px] min-w-[62px] flex-1 items-center justify-center rounded-full bg-[#7f1d1d] text-white transition-all hover:-translate-y-px hover:bg-[#991b1b] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 sm:h-[46px] sm:min-w-[86px] sm:flex-initial"
-          >
-            <Power size={18} />
-          </button>
+        <div className="zk-card flex min-h-[280px] flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
+            <span className="flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400">
+              <Users size={11} className="text-brand-500" />
+              Players
+            </span>
+            <span
+              className={
+                "rounded px-1.5 py-0.5 font-mono text-[0.56rem] font-semibold " +
+                (players.length
+                  ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+                  : "border border-white/[0.08] bg-white/[0.03] text-zinc-500")
+              }
+            >
+              {players.length} online
+            </span>
+          </div>
+
+          {players.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+              <div className="relative">
+                <Users size={30} className="text-zinc-800" strokeWidth={1.5} />
+                <CircleSlash size={14} className="absolute -bottom-1 -right-1 text-zinc-700" />
+              </div>
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                No players online
+              </p>
+              <p className="max-w-[190px] text-[0.62rem] leading-relaxed text-zinc-800">
+                {isOnline ? "The roster updates within ten seconds of a join." : "Start the server to populate the roster."}
+              </p>
+            </div>
+          ) : (
+            <ul className="no-scrollbar flex-1 divide-y divide-white/[0.045] overflow-y-auto">
+              {players.map((name) => (
+                <li key={name} className="flex items-center gap-2.5 px-3.5 py-2">
+                  <span className="flex h-6 w-6 flex-none items-center justify-center rounded bg-white/[0.07] font-mono text-[0.58rem] font-bold uppercase text-zinc-300">
+                    {name.slice(0, 2)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[0.72rem] text-zinc-300">{name}</span>
+                  <span className="h-1.5 w-1.5 flex-none rounded-full bg-emerald-400" />
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex items-center justify-between border-t border-white/[0.05] px-3.5 py-2 font-mono text-[0.56rem] text-zinc-700">
+            <span>net ↓{formatRate(stats?.netInRate ?? 0)}</span>
+            <span>↑{formatRate(stats?.netOutRate ?? 0)}</span>
+          </div>
         </div>
       </div>
 
-      {/* ------------------------------------------- console + stat tiles */}
-      <div className="grid grid-cols-1 gap-[22px] xl:grid-cols-[1fr_320px]">
-        {/* console */}
-        <div className="flex h-[420px] flex-col overflow-hidden rounded-[10px] bg-[#131010] sm:h-[520px] xl:h-[700px]">
-          <div className="flex flex-wrap items-center gap-2 border-b border-[#232020] bg-[#191717] px-3.5 py-2">
-            <TerminalIcon size={13} className="text-[#8a8a8a]" />
-            <span className="font-mono text-[0.7rem] font-semibold text-[#c9c9c9]">console</span>
-            <span className="font-mono text-[0.62rem] text-[#5c5c5c]">{lines.length} lines</span>
-            <div className="ml-auto flex items-center gap-1">
-              {showFilter ? (
-                <div className="flex items-center gap-1 rounded-md border border-[#2a2626] bg-[#0d0c0c] px-2">
-                  <Search size={11} className="text-[#5c5c5c]" />
-                  <input
-                    autoFocus
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Filter output"
-                    className="w-28 bg-transparent py-1 font-mono text-[0.65rem] text-zinc-200 outline-none placeholder:text-[#5c5c5c]"
-                  />
-                  <button type="button" onClick={() => { setShowFilter(false); setFilter(""); }} className="text-[#5c5c5c] hover:text-zinc-200">
-                    <X size={11} />
-                  </button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowFilter(true)} className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200" title="Filter output">
-                  <Search size={13} />
-                </button>
-              )}
-              <button type="button" onClick={copyLogs} className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200" title="Copy console">
-                {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-              </button>
-              <button
-                type="button"
-                onClick={() => apiDownload(`/servers/${server.id}/logs?lines=10000`, `${server.name}-console.log`)}
-                className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200"
-                title="Download log"
-              >
-                <Download size={13} />
-              </button>
-              <button type="button" onClick={clearConsole} className="rounded p-1.5 text-[#5c5c5c] transition hover:bg-white/5 hover:text-zinc-200" title="Clear console">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          </div>
+      {/* ══════════════════════════════ right: system console ════════════ */}
+      <div className="zk-console-shell flex min-h-[560px] flex-col overflow-hidden">
+        {/* window chrome */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-3.5 py-2.5">
+          <span className="flex flex-none items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+          </span>
 
-          <div className="relative flex-1">
-            <div
-              ref={bodyRef}
-              onScroll={onScroll}
-              onClick={() => inputRef.current?.focus()}
-              className="absolute inset-0 select-text overflow-y-auto overflow-x-hidden bg-[#0d0c0c] px-3.5 py-3 font-mono text-[12.5px] leading-[1.62] text-[#c9c9c9] [overflow-wrap:anywhere]"
+          <span className="ml-2 flex min-w-0 items-center gap-1.5">
+            <TerminalSquare size={12} className="flex-none text-zinc-500" />
+            <span className="truncate text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-300">
+              System console
+            </span>
+          </span>
+
+          <span className="hidden min-w-0 items-center gap-1.5 font-mono text-[0.56rem] text-zinc-700 md:flex">
+            <span className="text-zinc-800">stream</span>
+            <span className="truncate rounded border border-dashed border-white/[0.1] px-1.5 py-0.5 text-zinc-500">
+              {streamId}
+            </span>
+          </span>
+
+          <div className="ml-auto flex items-center gap-2">
+            <span className="hidden items-center gap-1 font-mono text-[0.58rem] text-zinc-600 sm:flex">
+              <Clock size={10} />
+              {now}
+            </span>
+            <span
+              className={
+                "flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[0.55rem] font-bold uppercase tracking-[0.1em] " +
+                (isOnline
+                  ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+                  : isTransitioning
+                  ? "border-amber-400/25 bg-amber-400/10 text-amber-300"
+                  : "border-white/[0.08] bg-white/[0.03] text-zinc-500")
+              }
             >
-              {visible.length === 0 && (
-                <div className="space-y-1 text-[#5c5c5c]">
-                  <p>{filter ? "No lines match that filter." : "Console is empty."}</p>
-                  {!filter && <p>Start the server to stream live output here.</p>}
-                </div>
-              )}
-              {visible.map((line, index) => (
-                <div key={`${index}-${line.slice(0, 12)}`} className={`mb-px min-w-0 break-words ${tone[classify(line)]}`}>
-                  {stripAnsi(line)}
-                </div>
-              ))}
-            </div>
+              <Radio size={9} className={isOnline ? "text-emerald-400" : ""} />
+              {isOnline ? "Live" : isTransitioning ? "Busy" : "Idle"}
+            </span>
 
-            {!atBottom && (
+            <span className="mx-0.5 hidden h-4 w-px bg-white/[0.08] sm:block" />
+
+            {showFilter ? (
+              <div className="flex items-center gap-1 rounded border border-white/[0.08] bg-black/40 px-1.5">
+                <Search size={10} className="text-zinc-600" />
+                <input
+                  autoFocus
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="filter"
+                  className="w-20 bg-transparent py-0.5 font-mono text-[0.62rem] text-zinc-200 outline-none placeholder:text-zinc-700"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFilter(false);
+                    setFilter("");
+                  }}
+                  className="text-zinc-600 transition hover:text-zinc-200"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={scrollToBottom}
-                className="absolute bottom-[60px] right-3 z-20 flex items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/95 px-3 py-1.5 text-[11px] font-medium text-zinc-200 shadow-xl backdrop-blur-md transition hover:bg-zinc-800 active:scale-95"
-                title="Scroll to bottom"
+                onClick={() => setShowFilter(true)}
+                className="rounded p-1 text-zinc-600 transition hover:bg-white/5 hover:text-zinc-200"
+                title="Filter output"
               >
-                <ArrowDown className="h-3.5 w-3.5 animate-bounce text-emerald-400" />
-                <span>Scroll to bottom</span>
+                <Search size={12} />
               </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setCompact((v) => !v)}
+              className={"rounded p-1 transition hover:bg-white/5 hover:text-zinc-200 " + (compact ? "text-brand-400" : "text-zinc-600")}
+              title={compact ? "Comfortable spacing" : "Compact spacing"}
+            >
+              <ScrollText size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={copyLogs}
+              className="rounded p-1 text-zinc-600 transition hover:bg-white/5 hover:text-zinc-200"
+              title="Copy console"
+            >
+              {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+            </button>
+            <button
+              type="button"
+              onClick={exportLogs}
+              className="rounded p-1 text-zinc-600 transition hover:bg-white/5 hover:text-zinc-200"
+              title="Download log"
+            >
+              <Download size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={clearConsole}
+              className="rounded p-1 text-zinc-600 transition hover:bg-red-500/10 hover:text-red-300"
+              title="Clear console"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* stream body */}
+        <div className="relative flex-1">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-black/60 to-transparent" />
+          <div
+            ref={bodyRef}
+            onScroll={onScroll}
+            onClick={() => inputRef.current?.focus()}
+            className={
+              "zk-terminal h-full select-text overflow-y-auto overflow-x-hidden bg-transparent px-4 py-3.5 text-zinc-300 [overflow-wrap:anywhere] " +
+              (compact ? "text-[11px] leading-[1.5]" : "text-[12px] leading-[1.75]")
+            }
+            style={{ minHeight: 380 }}
+          >
+            {visible.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-1.5 py-16 text-center">
+                <TerminalSquare size={20} className="text-zinc-800" />
+                <p className="text-[0.72rem] text-zinc-700">{filter ? "Nothing matches that filter." : "No output yet."}</p>
+                <p className="text-[0.64rem] text-zinc-800">
+                  {isOnline ? "Live output will appear here." : "Start the server to stream output."}
+                </p>
+              </div>
+            ) : (
+              visible.map((line, index) => {
+                const kind = classify(line);
+                const mark = LINE_MARK[kind];
+                return (
+                  <div key={`${index}-${line.slice(0, 12)}`} className={`group/mark flex min-w-0 items-start gap-2 ${LINE_TONE[kind]}`}>
+                    <span className="w-3 flex-none select-none text-center text-[0.62rem] leading-[1.9] text-zinc-800">
+                      {mark || ";"}
+                    </span>
+                    <span className="min-w-0 break-words">{stripAnsi(line)}</span>
+                  </div>
+                );
+              })
             )}
           </div>
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              send();
-            }}
-            className="flex shrink-0 items-center gap-2.5 border-t border-[#232020] bg-[#191717] px-3.5 py-3"
-          >
-            <ChevronRight size={16} className={isOnline ? "text-[#8a8a8a]" : "text-[#4a4444]"} />
-            <input
-              ref={inputRef}
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              onKeyDown={onKeyDown}
-              disabled={!isOnline}
-              placeholder={isOnline ? "Type a command..." : "Start the server to send commands"}
-              autoComplete="off"
-              spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent font-mono text-[13px] text-[#e9eaee] outline-none placeholder:text-[#5c5c5c] disabled:cursor-not-allowed"
-            />
+          {!atBottom && (
             <button
-              type="submit"
-              disabled={!isOnline || !command.trim() || sending}
-              className="rounded-md bg-brand-500 px-2.5 py-1 text-[0.65rem] font-bold text-ink-950 transition hover:bg-brand-400 disabled:cursor-not-allowed disabled:opacity-30"
+              type="button"
+              onClick={scrollToBottom}
+              className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0e0e11]/95 px-2.5 py-1 text-[0.62rem] font-medium text-zinc-200 shadow-lg backdrop-blur transition hover:border-white/25 hover:text-white active:scale-95"
             >
-              Send
+              <ArrowDown size={11} className="animate-bounce text-brand-400" />
+              Latest
             </button>
-          </form>
+          )}
         </div>
 
-        {/* stat tiles */}
-        <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2 xl:flex xl:flex-col">
-          <StatTile
-            icon={<Wifi style={{ width: 56, height: 56 }} />}
-            label="Address"
-            value={<span className="font-mono">{server.ip === "0.0.0.0" ? "0.0.0.0" : server.ip}:{server.port}</span>}
-          />
-          <StatTile icon={<Clock style={{ width: 56, height: 56 }} />} label="Uptime" value={isOnline ? formatUptime(uptimeSeconds) : "—"} />
-          <StatTile
-            icon={<Cpu style={{ width: 56, height: 56 }} />}
-            label="CPU Load"
-            value={isOnline ? `${(stats?.cpu ?? 0).toFixed(2)}%` : "—"}
-            dim={isOnline ? `/ ${cpuLimit * 100}%` : undefined}
-          />
-          <StatTile
-            icon={<MemoryStick style={{ width: 56, height: 56 }} />}
-            label="Memory"
-            value={isOnline ? formatMb(stats?.ram ?? 0) : "—"}
-            dim={isOnline ? `/ ${formatMb(ramLimit)}` : undefined}
-          />
-          <StatTile
-            icon={<HardDrive style={{ width: 56, height: 56 }} />}
-            label="Disk"
-            value={formatMb(stats?.disk ?? 0)}
-            dim={diskLimit ? `/ ${formatMb(diskLimit)}` : undefined}
-          />
-          <StatTile
-            icon={<ArrowDown style={{ width: 56, height: 56 }} />}
-            label="Network (Inbound)"
-            value={isOnline ? `↓ ${formatRate(stats?.netInRate ?? 0)}` : "—"}
-          />
-          <StatTile
-            icon={<ArrowUp style={{ width: 56, height: 56 }} />}
-            label="Network (Outbound)"
-            value={isOnline ? `↑ ${formatRate(stats?.netOutRate ?? 0)}` : "—"}
-          />
+        {/* quick commands */}
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.055] px-3.5 py-2">
+          <span className="mr-1 text-[0.54rem] font-bold uppercase tracking-[0.16em] text-zinc-700">Quick command</span>
+          {QUICK_COMMANDS.map((cmd) => (
+            <button
+              key={cmd}
+              type="button"
+              onClick={() => send(cmd)}
+              disabled={!isOnline || sending}
+              className="rounded border border-white/[0.07] bg-white/[0.03] px-2 py-0.5 font-mono text-[0.62rem] text-zinc-400 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {cmd}
+            </button>
+          ))}
+          <span className="ml-auto hidden items-center gap-1 font-mono text-[0.54rem] text-zinc-800 sm:flex">
+            <ArrowUp size={9} /> history
+            <span className="mx-1">·</span>
+            Ctrl+L clear
+          </span>
         </div>
-      </div>
 
-      {/* -------------------------------------------------- charts (JTG) */}
-      <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
-        <ChartCard
-          title="CPU Load (%)"
-          data={cpuHist}
-          dataKey="cpu"
-          max={Math.max(10, cpuLimit * 100)}
-          colors={["#22d3ee", "#e8bd15"]}
-        />
-        <ChartCard title="Memory (MB)" data={ramHist} dataKey="ram" max={ramLimit} colors={["#22d3ee", "#e8bd15"]} />
-        <ChartCard
-          title="Network (KB/s)"
-          data={netHist}
-          dataKey="netIn"
-          dataKey2="netOut"
-          colors={["#22d3ee", "#e8bd15"]}
-          icons={
-            <>
-              <ArrowDown className="h-3 w-3 text-[#22d3ee]" />
-              <ArrowUp className="h-3 w-3 text-[#e8bd15]" />
-            </>
-          }
-        />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 text-[0.62rem] text-zinc-600">
-        <span className="flex items-center gap-1.5">
-          <Signal size={11} /> live via WebSocket
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="zk-kbd">↑</span>
-          <span className="zk-kbd">↓</span> history
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="zk-kbd">ctrl</span>
-          <span className="zk-kbd">L</span> clear
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <Switch checked={autoScroll} onChange={setAutoScroll} label="Auto-scroll" />
-          <span className="text-zinc-600">{clock(stats?.startedAt)}</span>
-        </div>
+        {/* prompt */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+          className="flex items-center gap-2 border-t border-white/[0.06] px-3.5 py-2.5"
+        >
+          <span className="flex-none select-none font-mono text-[0.72rem] text-zinc-600">
+            <span className="text-brand-500">admin@node</span>
+            <span className="text-zinc-700">:~$</span>
+          </span>
+          <input
+            ref={inputRef}
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={!isOnline}
+            placeholder={isOnline ? "type a command…" : "server is offline"}
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent font-mono text-[0.76rem] text-zinc-100 outline-none placeholder:text-zinc-700 disabled:cursor-not-allowed"
+          />
+          <button
+            type="submit"
+            disabled={!isOnline || !command.trim() || sending}
+            className="flex flex-none items-center gap-1.5 rounded-md border border-white/[0.1] bg-white/[0.06] px-2.5 py-1.5 text-[0.6rem] font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:border-white/25 hover:bg-white/[0.12] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            {sending ? <Loader2 size={11} className="zk-spin" /> : null}
+            Execute
+          </button>
+        </form>
       </div>
     </div>
   );

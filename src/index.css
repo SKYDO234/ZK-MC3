@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink-950: #060607;
-  --color-ink-900: #0a0a0b;
-  --color-ink-850: #0d0d0f;
-  --color-ink-800: #111113;
-  --color-ink-750: #16161a;
-  --color-ink-700: #1b1b20;
-  --color-ink-600: #26262c;
-  --color-ink-500: #34343c;
+  --color-ink-950: #000000;
+  --color-ink-900: #08080a;
+  --color-ink-850: #0b0b0d;
+  --color-ink-800: #0e0e11;
+  --color-ink-750: #121215;
+  --color-ink-700: #16161a;
+  --color-ink-600: #1e1e23;
+  --color-ink-500: #2a2a31;
   --color-brand-50: #fff4e6;
   --color-brand-100: #ffe2bf;
   --color-brand-200: #ffc98a;
@@ -23,11 +23,26 @@
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
+/*
+ * Design language
+ * ---------------------------------------------------------------------------
+ * Flat, near-black surfaces. Hairline borders instead of shadows and glows.
+ * Numerals are monospaced so values don't jitter. Labels are tiny, uppercase and
+ * letter-spaced. Exactly one element per view is allowed to be bright, which is
+ * usually the primary action — and the primary action is white, not coloured.
+ */
 :root {
   color-scheme: dark;
   --brand: #ff7a18;
-  --brand-soft: rgba(255, 122, 24, 0.14);
-  --brand-glow: rgba(255, 122, 24, 0.32);
+  --brand-soft: rgba(255, 122, 24, 0.12);
+  --brand-glow: rgba(255, 122, 24, 0.28);
+  --surface: #0a0a0c;
+  --surface-raised: #0e0e11;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-soft: rgba(255, 255, 255, 0.045);
+  --text: #fafafa;
+  --text-dim: #a0a0a8;
+  --text-mute: #6a6a72;
 }
 
 * {
@@ -42,8 +57,8 @@ body,
 
 body {
   margin: 0;
-  background-color: #060607;
-  color: #e9e9ee;
+  background-color: #000;
+  color: var(--text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -51,87 +66,68 @@ body {
 }
 
 ::selection {
-  background: rgba(255, 122, 24, 0.32);
+  background: rgba(255, 122, 24, 0.3);
   color: #fff;
 }
 
 /* Scrollbars ------------------------------------------------------------- */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #26262c;
+  background: #232329;
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a44;
+  background: #34343c;
   background-clip: content-box;
 }
 
 /* App background --------------------------------------------------------- */
+/* Flat black. No glow, no grid, no gradient — the content carries the colour. */
 .zk-app-bg {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(900px 500px at 12% -8%, rgba(255, 122, 24, 0.16), transparent 62%),
-    radial-gradient(700px 460px at 100% 0%, rgba(255, 122, 24, 0.07), transparent 58%),
-    radial-gradient(800px 600px at 50% 110%, rgba(120, 60, 10, 0.14), transparent 65%),
-    #060607;
-}
-
-.zk-app-bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+  background: #000;
 }
 
 /* Surfaces --------------------------------------------------------------- */
 .zk-card {
   position: relative;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.008)),
-    rgba(13, 13, 15, 0.86);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 45px -32px rgba(0, 0, 0, 0.9);
-  backdrop-filter: blur(14px);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .zk-card-hover {
-  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: border-color 0.18s ease, background 0.18s ease;
 }
 .zk-card-hover:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 122, 24, 0.32);
-  box-shadow: 0 24px 60px -30px rgba(255, 122, 24, 0.35), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  border-color: rgba(255, 255, 255, 0.13);
+  background: var(--surface-raised);
 }
 
 .zk-panel {
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(12, 12, 14, 0.72);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .zk-inset {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.32);
+  border-radius: 9px;
+  border: 1px solid var(--line-soft);
+  background: rgba(0, 0, 0, 0.4);
 }
 
 .zk-glow-ring {
-  box-shadow: 0 0 0 1px rgba(255, 122, 24, 0.35), 0 0 40px -12px rgba(255, 122, 24, 0.5);
+  box-shadow: 0 0 0 1px rgba(255, 122, 24, 0.3);
 }
 
 .zk-brand-text {
@@ -141,73 +137,85 @@ body {
   color: transparent;
 }
 
+/* Section label — the tiny uppercase caption used all over the panel. */
+.zk-eyebrow {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
 /* Buttons ---------------------------------------------------------------- */
 .zk-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  border-radius: 11px;
-  font-weight: 600;
-  font-size: 0.875rem;
-  padding: 0.625rem 1rem;
-  transition: all 0.18s ease;
+  gap: 0.45rem;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.82rem;
+  padding: 0.55rem 0.9rem;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
   cursor: pointer;
   border: 1px solid transparent;
 }
 .zk-btn:disabled {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: not-allowed;
 }
+/* The one bright element on the page. */
 .zk-btn-primary {
-  color: #150a02;
-  background: linear-gradient(135deg, #ffab52, #ff7a18 55%, #f26500);
-  box-shadow: 0 10px 30px -14px rgba(255, 122, 24, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #0a0a0a;
+  background: #fafafa;
+  border-color: #fafafa;
+  font-weight: 600;
 }
 .zk-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.07);
-  transform: translateY(-1px);
+  background: #ffffff;
+  border-color: #ffffff;
 }
 .zk-btn-ghost {
-  color: #d7d7de;
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.09);
+  color: #d4d4d9;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 .zk-btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
   color: #fff;
 }
 .zk-btn-danger {
-  color: #ffeaea;
-  background: rgba(239, 68, 68, 0.16);
-  border-color: rgba(239, 68, 68, 0.35);
+  color: #ffb4b4;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.28);
 }
 .zk-btn-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.42);
 }
 .zk-btn-success {
-  color: #eafff2;
-  background: rgba(16, 185, 129, 0.16);
-  border-color: rgba(16, 185, 129, 0.35);
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.28);
 }
 .zk-btn-success:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.28);
+  background: rgba(34, 197, 94, 0.18);
 }
 .zk-btn-sm {
-  padding: 0.4rem 0.7rem;
-  font-size: 0.78rem;
-  border-radius: 9px;
+  padding: 0.34rem 0.62rem;
+  font-size: 0.74rem;
+  border-radius: 7px;
 }
 .zk-btn-subtle {
-  color: #a1a1ad;
+  color: #8a8a92;
   background: transparent;
   border-color: transparent;
 }
 .zk-btn-subtle:hover:not(:disabled) {
   color: #fff;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* Form fields ------------------------------------------------------------ */
@@ -215,29 +223,28 @@ body {
 .zk-select,
 .zk-textarea {
   width: 100%;
-  border-radius: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(6, 6, 8, 0.72);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: #0a0a0c;
   color: #f1f1f5;
-  font-size: 0.875rem;
-  padding: 0.65rem 0.85rem;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  font-size: 0.83rem;
+  padding: 0.6rem 0.8rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   outline: none;
 }
 .zk-input::placeholder,
 .zk-textarea::placeholder {
-  color: #6c6c78;
+  color: #5e5e66;
 }
 .zk-input:focus,
 .zk-select:focus,
 .zk-textarea:focus {
-  border-color: rgba(255, 122, 24, 0.6);
-  box-shadow: 0 0 0 3px rgba(255, 122, 24, 0.14);
-  background: rgba(10, 10, 12, 0.9);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
 }
 .zk-select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%238a8a96'%3E%3Cpath d='M5.5 7.5 10 12l4.5-4.5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%237a7a82'%3E%3Cpath d='M5.5 7.5 10 12l4.5-4.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.6rem center;
   background-size: 1.1rem;
@@ -245,10 +252,10 @@ body {
 }
 .zk-label {
   display: block;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #a3a3b0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #8a8a92;
   margin-bottom: 0.4rem;
   text-transform: uppercase;
 }
@@ -264,8 +271,8 @@ body {
   flex: none;
 }
 .zk-checkbox:checked {
-  background: linear-gradient(135deg, #ffab52, #ff7a18);
-  border-color: #ff9129;
+  background: #fafafa;
+  border-color: #fafafa;
 }
 .zk-checkbox:checked::after {
   content: "";
@@ -274,7 +281,7 @@ body {
   top: 1px;
   width: 5px;
   height: 10px;
-  border: solid #1a0d02;
+  border: solid #0a0a0a;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
@@ -283,44 +290,128 @@ body {
 .zk-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
+  gap: 0.3rem;
+  border-radius: 5px;
+  font-size: 0.66rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 0.2rem 0.55rem;
+  letter-spacing: 0.05em;
+  padding: 0.16rem 0.45rem;
   border: 1px solid transparent;
   white-space: nowrap;
+  text-transform: uppercase;
 }
 .zk-badge-online {
-  color: #5ff2b0;
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.28);
+  color: #6ee7a8;
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.24);
 }
 .zk-badge-offline {
-  color: #9a9aa6;
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
+  color: #9a9aa2;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.09);
 }
 .zk-badge-warn {
-  color: #ffcc7a;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.3);
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.26);
 }
 .zk-badge-danger {
-  color: #ff9d9d;
-  background: rgba(239, 68, 68, 0.14);
-  border-color: rgba(239, 68, 68, 0.32);
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.26);
 }
 .zk-badge-brand {
   color: #ffb877;
-  background: rgba(255, 122, 24, 0.13);
-  border-color: rgba(255, 122, 24, 0.3);
+  background: rgba(255, 122, 24, 0.1);
+  border-color: rgba(255, 122, 24, 0.26);
 }
 .zk-badge-info {
-  color: #9cc4ff;
-  background: rgba(59, 130, 246, 0.14);
-  border-color: rgba(59, 130, 246, 0.32);
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.26);
+}
+
+/* Stat cards ------------------------------------------------------------- */
+/*
+ * A stat card carries its meaning in a 2px rule along the top edge, then a tiny
+ * label, then a monospaced number in the same hue. That is the whole card.
+ */
+.zk-stat {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0.95rem 1rem 1rem;
+  transition: border-color 0.18s ease;
+}
+.zk-stat:hover {
+  border-color: rgba(255, 255, 255, 0.13);
+}
+.zk-stat::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--stat-accent, rgba(255, 255, 255, 0.14));
+  opacity: 0.9;
+}
+.zk-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.zk-stat-value {
+  margin-top: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--stat-accent, #fafafa);
+}
+.zk-stat-hint {
+  margin-top: 0.5rem;
+  font-size: 0.66rem;
+  color: var(--text-mute);
+}
+
+/* A hairline grid of label/value cells — used for system information blocks. */
+.zk-cellgrid {
+  display: grid;
+  border-top: 1px solid var(--line-soft);
+  border-left: 1px solid var(--line-soft);
+}
+.zk-cellgrid > * {
+  border-right: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 0.8rem 0.9rem;
+  min-width: 0;
+}
+.zk-cell-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.zk-cell-value {
+  margin-top: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ececf1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Console ---------------------------------------------------------------- */
@@ -329,8 +420,8 @@ body {
   font-size: 0.78rem;
   line-height: 1.55;
   background: #050506;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  border: 1px solid var(--line);
   color: #cfd3dc;
   padding: 0.9rem 1rem;
   overflow-y: auto;
@@ -351,7 +442,7 @@ body {
 @keyframes zk-fade-up {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -359,25 +450,25 @@ body {
   }
 }
 .zk-fade-up {
-  animation: zk-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: zk-fade-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes zk-pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
   }
 }
 .zk-live-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
-  background: #10b981;
+  background: #22c55e;
   animation: zk-pulse-ring 2s infinite;
   display: inline-block;
 }
@@ -391,10 +482,10 @@ body {
   }
 }
 .zk-skeleton {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.09) 37%, rgba(255, 255, 255, 0.04) 63%);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.035) 25%, rgba(255, 255, 255, 0.07) 37%, rgba(255, 255, 255, 0.035) 63%);
   background-size: 200% 100%;
   animation: zk-shimmer 1.4s ease infinite;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 @keyframes zk-float {
@@ -419,36 +510,30 @@ body {
   animation: zk-spin 0.85s linear infinite;
 }
 
-@keyframes zk-marquee-pixel {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  100% {
-    transform: translate3d(-64px, -64px, 0);
-  }
-}
-.zk-pixel-grid {
-  position: absolute;
-  inset: -64px;
-  background-image:
-    linear-gradient(rgba(255, 122, 24, 0.09) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 122, 24, 0.09) 1px, transparent 1px);
-  background-size: 64px 64px;
-  animation: zk-marquee-pixel 18s linear infinite;
-  mask-image: radial-gradient(ellipse at center, #000 10%, transparent 72%);
-}
 
 /* Sidebar ---------------------------------------------------------------- */
+.zk-nav-group {
+  margin-bottom: 1.35rem;
+}
+.zk-nav-group-label {
+  margin: 0 0 0.4rem;
+  padding: 0 0.6rem;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #55555c;
+}
 .zk-nav-item {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  border-radius: 11px;
-  padding: 0.58rem 0.7rem;
-  font-size: 0.86rem;
+  gap: 0.62rem;
+  border-radius: 7px;
+  padding: 0.46rem 0.6rem;
+  font-size: 0.81rem;
   font-weight: 500;
-  color: #9b9ba8;
-  transition: all 0.16s ease;
+  color: #9b9ba3;
+  transition: background 0.14s ease, color 0.14s ease;
   border: 1px solid transparent;
   position: relative;
 }
@@ -456,22 +541,17 @@ body {
   color: #f2f2f6;
   background: rgba(255, 255, 255, 0.045);
 }
-.zk-nav-item-active {
-  color: #ffdcb8;
-  background: linear-gradient(90deg, rgba(255, 122, 24, 0.18), rgba(255, 122, 24, 0.045));
-  border-color: rgba(255, 122, 24, 0.28);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 30px -22px rgba(255, 122, 24, 0.9);
+/* Active = inverted. The only light surface in the rail, exactly as in the
+   reference: white pill, near-black text. */
+.zk-nav-item-active,
+.zk-nav-item-active:hover {
+  color: #0a0a0a;
+  background: #ededed;
+  border-color: #ededed;
+  font-weight: 600;
 }
-.zk-nav-item-active::before {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: 20%;
-  height: 60%;
-  width: 2.5px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #ffb347, #ff7a18);
-  box-shadow: 0 0 12px rgba(255, 122, 24, 0.9);
+.zk-nav-item-active .zk-nav-icon {
+  color: #0a0a0a;
 }
 
 /* Tables ----------------------------------------------------------------- */
@@ -479,30 +559,30 @@ body {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.85rem;
+  font-size: 0.81rem;
 }
 .zk-table thead th {
   text-align: left;
-  font-size: 0.68rem;
-  letter-spacing: 0.09em;
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7c7c8a;
+  color: #66666e;
   font-weight: 700;
-  padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 .zk-table tbody td {
-  padding: 0.8rem 0.9rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  padding: 0.72rem 0.85rem;
+  border-bottom: 1px solid var(--line-soft);
   color: #d3d3dc;
   vertical-align: middle;
 }
 .zk-table tbody tr {
-  transition: background 0.15s ease;
+  transition: background 0.14s ease;
 }
 .zk-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.028);
+  background: rgba(255, 255, 255, 0.022);
 }
 .zk-table tbody tr:last-child td {
   border-bottom: none;
@@ -510,7 +590,7 @@ body {
 
 /* Progress --------------------------------------------------------------- */
 .zk-progress {
-  height: 7px;
+  height: 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.07);
   overflow: hidden;
@@ -519,24 +599,23 @@ body {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ffab52, #ff7a18);
+  background: #fafafa;
   transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-  box-shadow: 0 0 14px -2px rgba(255, 122, 24, 0.7);
 }
 
 .zk-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  background: var(--line-soft);
 }
 
 .zk-kbd {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  padding: 0.1rem 0.35rem;
-  color: #b9b9c4;
+  font-size: 0.64rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.05rem 0.3rem;
+  color: #a5a5ae;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -552,13 +631,10 @@ body {
   }
 }
 
-/* JTG-style console ------------------------------------------------------ */
+/* Terminal surface ------------------------------------------------------- */
 .zk-terminal {
   font-family: var(--font-mono);
-  background:
-    radial-gradient(700px 260px at 100% 0%, rgba(255, 122, 24, 0.05), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 22%),
-    #07070a;
+  background: #050506;
   color: #cfd3dc;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
@@ -573,12 +649,330 @@ body {
   width: 9px;
 }
 .zk-terminal::-webkit-scrollbar-thumb {
-  background: #23232b;
+  background: #1f1f25;
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-.zk-terminal::-webkit-scrollbar-thumb:hover {
-  background: #353540;
-  background-clip: content-box;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Appearance engine
+ * ---------------------------------------------------------------------------
+ * Themes & Fonts writes data attributes on <html>; every rule below reacts to
+ * them. The shipped look is `ui="frosted"`: a dimmed wallpaper behind
+ * translucent surfaces, one hairline each, no shadows unless the operator asks
+ * for them. Solid themes fall back to the ink palette with no blur.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ui-radius: 12px;
+  --ui-speed: 0.22s;
+  --sidebar-w: 248px;
+  --glass-blur: 18px;
+  --wallpaper-opacity: 1;
+  --brand-2: #ffb020;
+  --brand-grad: linear-gradient(135deg, #ff7a18, #ffb020);
+}
+
+/* Wallpaper layer --------------------------------------------------------- */
+.zk-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background: #000;
+  transition: opacity var(--ui-speed) ease;
+}
+.zk-wallpaper img,
+.zk-wallpaper video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: var(--wallpaper-opacity);
+  transition: opacity var(--ui-speed) ease;
+}
+.zk-wallpaper::after {
+  /* Scrim keeps text contrast on bright wallpapers without washing it out. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.72) 70%, rgba(0, 0, 0, 0.85));
+  pointer-events: none;
+}
+html[data-ui="solid"] .zk-wallpaper,
+html[data-ui="minimal"] .zk-wallpaper,
+html[data-ui="terminal"] .zk-wallpaper {
+  opacity: 0;
+}
+
+/* The canvas becomes translucent so the wallpaper shows through. */
+html:not([data-ui="solid"]):not([data-ui="minimal"]):not([data-ui="terminal"]) .zk-app-bg {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+/* Glass surfaces ---------------------------------------------------------- */
+.zk-glass {
+  background: rgba(14, 14, 17, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  transition: background var(--ui-speed) ease, border-color var(--ui-speed) ease,
+    backdrop-filter var(--ui-speed) ease;
+}
+.zk-glass-strong {
+  background: rgba(10, 10, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.2)) saturate(150%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.2)) saturate(150%);
+}
+.zk-glass-soft {
+  background: rgba(16, 16, 20, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(130%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(130%);
+}
+
+/* Card style -------------------------------------------------------------- */
+.zk-card {
+  border-radius: var(--ui-radius);
+  transition: background var(--ui-speed) ease, border-color var(--ui-speed) ease;
+}
+html[data-card="glass"] .zk-card {
+  background: rgba(14, 14, 17, 0.6);
+  border-color: rgba(255, 255, 255, 0.085);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+}
+html[data-card="glass"] .zk-card-hover:hover {
+  background: rgba(22, 22, 27, 0.72);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+html[data-card="bordered"] .zk-card {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+html[data-card="flat"] .zk-card {
+  background: rgba(255, 255, 255, 0.028);
+  border-color: transparent;
+}
+html[data-card="elevated"] .zk-card {
+  background: rgba(20, 20, 24, 0.82);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 18px 44px -22px rgba(0, 0, 0, 0.9), 0 2px 8px -4px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+html[data-card="neon"] .zk-card {
+  background: rgba(12, 12, 15, 0.66);
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 0 1px var(--brand-soft), 0 0 26px -14px var(--brand-glow);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+html[data-card="solid"] .zk-card {
+  background: var(--surface);
+}
+
+/* Border glow variants — applied to cards, tables and stat tiles. */
+html[data-glow="subtle"] .zk-card,
+html[data-glow="subtle"] .zk-stat,
+html[data-glow="subtle"] .zk-console-shell {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 22px -18px var(--brand-glow);
+}
+html[data-glow="medium"] .zk-card,
+html[data-glow="medium"] .zk-stat,
+html[data-glow="medium"] .zk-console-shell {
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 26px -16px var(--brand-glow);
+}
+html[data-glow="strong"] .zk-card,
+html[data-glow="strong"] .zk-stat,
+html[data-glow="strong"] .zk-console-shell {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 1px var(--brand-soft), 0 0 34px -10px var(--brand-glow);
+}
+@keyframes zk-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px var(--brand-soft), 0 0 22px -12px var(--brand-glow); }
+  50% { box-shadow: 0 0 0 1px var(--brand-glow), 0 0 40px -8px var(--brand-glow); }
+}
+html[data-glow="pulse"] .zk-card,
+html[data-glow="pulse"] .zk-stat {
+  border-color: var(--brand-soft);
+  animation: zk-glow-pulse 3.2s ease-in-out infinite;
+}
+
+/* Sidebar ----------------------------------------------------------------- */
+html[data-sidebar="glass"] .zk-sidebar {
+  background: rgba(8, 8, 10, 0.68);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-sidebar="gradient"] .zk-sidebar {
+  background: linear-gradient(180deg, rgba(20, 20, 26, 0.86), rgba(6, 6, 8, 0.94) 55%, rgba(24, 12, 4, 0.9));
+  border-color: rgba(255, 255, 255, 0.07);
+}
+html[data-sidebar="solid"] .zk-sidebar {
+  background: #050506;
+}
+
+/* Top bar ----------------------------------------------------------------- */
+html[data-topbar="glass"] .zk-topbar {
+  background: rgba(8, 8, 10, 0.58);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+}
+html[data-topbar="blur"] .zk-topbar {
+  background: rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  backdrop-filter: blur(26px) saturate(160%);
+}
+html[data-topbar="dark"] .zk-topbar {
+  background: #050506;
+}
+html[data-topbar="accent"] .zk-topbar {
+  background: linear-gradient(90deg, rgba(8, 8, 10, 0.9), var(--brand-soft));
+  border-color: var(--brand-soft);
+}
+html[data-topbar="transparent"] .zk-topbar {
+  background: transparent;
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-topbar="solid"] .zk-topbar {
+  background: #000;
+}
+
+/* Console chrome --------------------------------------------------------- */
+.zk-console-shell {
+  background: rgba(6, 6, 8, 0.72);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(130%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ui-radius);
+}
+html[data-ui="solid"] .zk-console-shell,
+html[data-card="solid"] .zk-console-shell {
+  background: #08080a;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Micro-surfaces inside cards (rows, tiles, inputs) follow the theme too. */
+html:not([data-card="solid"]) .zk-inset {
+  background: rgba(0, 0, 0, 0.32);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Motion & animation speed ----------------------------------------------- */
+html[data-anim-speed="slow"] * { animation-duration: 1.6s; }
+html[data-anim-speed="fast"] * { animation-duration: 0.6s; }
+html[data-anim-speed="instant"] *,
+html[data-anim-speed="instant"] *::before,
+html[data-anim-speed="instant"] *::after {
+  animation-duration: 0.001s !important;
+  transition-duration: 0.001s !important;
+}
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation: none !important;
+  transition-duration: 0.001s !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-anim-speed="instant"] * { animation: none !important; }
+}
+
+/* Accent-aware primitives ------------------------------------------------ */
+.zk-accent-grad {
+  background: var(--brand-grad);
+}
+.zk-accent-text {
+  color: var(--brand);
+}
+.zk-accent-line {
+  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+}
+
+/* Layout offsets follow the operator-chosen sidebar width. */
+.zk-sidebar {
+  width: var(--sidebar-w) !important;
+}
+@media (min-width: 1024px) {
+  .zk-sidebar-offset {
+    padding-left: var(--sidebar-w);
+  }
+}
+
+/* Range + colour inputs -------------------------------------------------- */
+.zk-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  outline: none;
+  cursor: pointer;
+}
+.zk-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--brand);
+  border: 2px solid #0a0a0c;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transition: transform var(--ui-speed) ease;
+}
+.zk-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.zk-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--brand);
+  border: 2px solid #0a0a0c;
+}
+.zk-color {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: transparent;
+  padding: 2px;
+}
+.zk-color::-webkit-color-swatch-wrapper { padding: 0; }
+.zk-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+
+/* Panels that used to be hard-coded ink -----------------------------------
+ * These are the same surfaces as `.zk-card` but were written as bespoke
+ * utilities. In a glass theme they have to be translucent too, or they punch
+ * opaque holes in the wallpaper. */
+.zk-surface {
+  background: var(--surface);
+  border-color: var(--line);
+}
+html:not([data-card="solid"]) .zk-surface {
+  background: rgba(12, 12, 15, 0.62);
+  border-color: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(135%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(135%);
+}
+html[data-card="bordered"] .zk-surface {
+  background: transparent;
+}
+html[data-card="neon"] .zk-surface {
+  border-color: var(--brand-soft);
+}
+
+/* The top bar carries two classes on purpose: `.zk-topbar` selects the theme
+ * variant, `.zk-topbar-ink` supplies the fallback colour underneath it. */
+.zk-topbar-ink {
+  background: rgba(0, 0, 0, 0.82);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }

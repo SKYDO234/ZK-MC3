@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import {
   Menu,
@@ -13,6 +13,7 @@ import {
   Command,
   Server as ServerIcon,
   ShieldCheck,
+  SquarePlus,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
@@ -121,7 +122,8 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
           { type: "page", label: "Create Server", hint: "Provision a new instance", to: "/admin/create-server" },
           { type: "page", label: "Nodes", hint: "Infrastructure", to: "/admin/nodes" },
           { type: "page", label: "User Management", hint: "Accounts", to: "/admin/users" },
-          { type: "page", label: "Panel Settings", hint: "Configuration", to: "/admin/settings" }
+          { type: "page", label: "Panel Settings", hint: "Configuration", to: "/admin/settings" },
+          { type: "page", label: "Themes & Fonts", hint: "Configuration", to: "/admin/themes" }
         );
       }
       let servers: SearchResult[] = [];
@@ -147,6 +149,29 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
 
   const unread = notifications.filter((n) => !n.read).length;
 
+  // Human label for the current route, shown in the header breadcrumb.
+  const { pathname } = useLocation();
+  const sectionLabel = React.useMemo(() => {
+    if (pathname.startsWith("/servers/")) return "Console";
+    const map: Record<string, string> = {
+      "/dashboard": "Dashboard",
+      "/servers": "My Servers",
+      "/account": "My Profile",
+      "/notifications": "Notifications",
+      "/api-keys": "API Keys",
+      "/admin": "Admin Overview",
+      "/admin/users": "Users",
+      "/admin/nodes": "Nodes",
+      "/admin/servers": "Servers",
+      "/admin/settings": "Panel Settings",
+      "/admin/themes": "Themes & Fonts",
+      "/admin/api-keys": "API Keys",
+      "/admin/system": "System",
+      "/admin/create-server": "Create Server",
+    };
+    return map[pathname] || "Dashboard";
+  }, [pathname]);
+
   const markAllRead = async () => {
     try {
       await api("/system/notifications/read", { method: "POST", body: {} });
@@ -162,50 +187,37 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
   };
 
   return (
-    <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#07070a]/80 backdrop-blur-2xl">
-      <div className="flex h-[62px] items-center gap-3 px-4 sm:px-6">
-        <button onClick={onMenuClick} className="zk-btn zk-btn-ghost zk-btn-sm px-2 lg:hidden">
+    <header className="zk-topbar sticky top-0 z-30 border-b border-white/[0.07] zk-topbar-ink">
+      <div className="flex h-[52px] items-center gap-2 px-4 sm:px-6">
+        <button onClick={onMenuClick} className="zk-btn zk-btn-subtle zk-btn-sm -ml-1 px-1.5 lg:hidden">
           <Menu size={17} />
         </button>
 
-        <button
-          onClick={() => setSearchOpen(true)}
-          className="group flex h-9 flex-1 max-w-md items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 text-left transition hover:border-white/15 hover:bg-white/[0.045]"
-        >
-          <Search size={15} className="text-zinc-500" />
-          <span className="flex-1 truncate text-xs text-zinc-500">Search servers, pages, actions…</span>
-          <span className="hidden items-center gap-0.5 sm:flex">
-            <span className="zk-kbd">⌘</span>
-            <span className="zk-kbd">K</span>
-          </span>
-        </button>
+        {/* Thin breadcrumb header, as in the reference chrome. */}
+        <div className="flex min-w-0 items-center gap-1.5 text-[0.72rem]">
+          <LayoutDashboard size={13} className="flex-none text-zinc-600" />
+          <span className="truncate text-zinc-500">Panel</span>
+          <span className="text-zinc-700">/</span>
+          <span className="truncate font-medium text-zinc-300">{sectionLabel}</span>
+        </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="hidden items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-1.5 md:flex">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[0.62rem] font-semibold uppercase tracking-wider text-zinc-500">CPU</span>
-              <span
-                className={clsx(
-                  "font-mono text-[0.7rem] font-semibold",
-                  (system?.loadPercent || 0) > 75 ? "text-red-400" : "text-emerald-400"
-                )}
-              >
-                {system?.loadPercent ?? 0}%
-              </span>
-            </div>
-            <span className="h-3 w-px bg-white/10" />
-            <div className="flex items-center gap-1.5">
-              <span className="text-[0.62rem] font-semibold uppercase tracking-wider text-zinc-500">RAM</span>
-              <span
-                className={clsx(
-                  "font-mono text-[0.7rem] font-semibold",
-                  (system?.memoryPercent || 0) > 85 ? "text-red-400" : "text-brand-400"
-                )}
-              >
-                {system?.memoryPercent ?? 0}%
-              </span>
-            </div>
-          </div>
+        <div className="ml-auto flex items-center gap-0.5">
+          <button
+            onClick={() => setSearchOpen(true)}
+            title="Search (Ctrl+K)"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200"
+          >
+            <Search size={15} />
+          </button>
+          {isAdmin && (
+            <Link
+              to="/admin/create-server"
+              title="New server"
+              className="hidden h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 sm:flex"
+            >
+              <SquarePlus size={15} />
+            </Link>
+          )}
 
           <div className="relative">
             <button
@@ -213,18 +225,18 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
                 setNotifOpen((v) => !v);
                 setUserOpen(false);
               }}
-              className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.025] text-zinc-400 transition hover:border-brand-500/30 hover:text-brand-300"
+              className="relative flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200"
             >
               <Bell size={16} />
               {unread > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[0.58rem] font-bold text-black">
+                <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[0.52rem] font-bold text-white">
                   {unread > 9 ? "9+" : unread}
                 </span>
               )}
             </button>
 
             {notifOpen && (
-              <div className="zk-card zk-fade-up absolute right-0 top-11 z-50 w-[min(92vw,360px)] overflow-hidden p-0">
+              <div className="zk-fade-up absolute right-0 top-10 z-50 w-[min(92vw,360px)] overflow-hidden rounded-lg border border-white/[0.09] zk-surface">
                 <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
                   <p className="text-sm font-semibold text-zinc-100">Notifications</p>
                   <button
@@ -279,23 +291,23 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
                 setUserOpen((v) => !v);
                 setNotifOpen(false);
               }}
-              className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.025] py-1 pl-1 pr-2 transition hover:border-brand-500/30"
+              className="ml-0.5 flex items-center gap-1.5 rounded-md py-0.5 pl-0.5 pr-1 transition hover:bg-white/[0.06]"
             >
-              <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-[0.62rem] font-bold text-black/80">
+              <span className="flex items-center justify-center overflow-hidden rounded-full bg-white/[0.1] text-[0.58rem] font-bold text-zinc-200" style={{ height: 26, width: 26 }}>
                 {user?.avatar ? (
                   <img src={user.avatar} alt="" className="h-full w-full object-cover" />
                 ) : (
                   initials(user?.name || user?.username || "")
                 )}
               </span>
-              <span className="hidden max-w-[110px] truncate text-[0.78rem] font-medium text-zinc-300 sm:block">
+              <span className="hidden max-w-[110px] truncate text-[0.75rem] font-medium text-zinc-300 sm:block">
                 {user?.username}
               </span>
               <ChevronDown size={13} className="text-zinc-500" />
             </button>
 
             {userOpen && (
-              <div className="zk-card zk-fade-up absolute right-0 top-11 z-50 w-56 overflow-hidden p-1.5">
+              <div className="zk-fade-up absolute right-0 top-10 z-50 w-56 overflow-hidden rounded-lg border border-white/[0.09] zk-surface p-1.5">
                 <div className="px-3 py-2">
                   <p className="truncate text-[0.82rem] font-semibold text-zinc-100">{user?.name}</p>
                   <p className="truncate text-[0.68rem] text-zinc-500">{user?.email}</p>
@@ -338,10 +350,10 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
 
       {searchOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/70 p-4 pt-[10vh] backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/80 p-4 pt-[10vh]"
           onClick={() => setSearchOpen(false)}
         >
-          <div className="zk-card zk-fade-up w-full max-w-xl overflow-hidden p-0" onClick={(e) => e.stopPropagation()}>
+          <div className="zk-fade-up w-full max-w-xl overflow-hidden rounded-xl border border-white/[0.09] zk-surface" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3 border-b border-white/[0.07] px-4">
               <Search size={16} className="text-zinc-500" />
               <input
@@ -371,7 +383,7 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
                   }}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-white/5"
                 >
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.05] text-brand-400">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.05] text-zinc-400">
                     <ServerIcon size={13} />
                   </span>
                   <span className="min-w-0 flex-1">

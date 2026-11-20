@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Settings2,
   Palette,
@@ -110,6 +111,9 @@ export const PanelSettings: React.FC = () => {
         subtitle="Configure branding, security, integrations and platform-wide limits."
         actions={
           <>
+            <Link to="/admin/themes" className="zk-btn zk-btn-ghost zk-btn-sm">
+              <Palette size={13} /> Themes &amp; Fonts
+            </Link>
             <Button size="sm" icon={<Megaphone size={13} />} onClick={() => setBroadcastOpen(true)}>
               Broadcast
             </Button>
@@ -208,7 +212,7 @@ export const PanelSettings: React.FC = () => {
 
               <Card>
                 <CardHeader title="Live preview" subtitle="Sidebar mark" icon={<Globe size={16} />} />
-                <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#08080a] p-4">
+                <div className="mt-4 rounded-xl border border-white/[0.07] zk-surface p-4">
                   <div className="flex items-center gap-2.5">
                     <img src={form.logoUrl || "/logo.png"} alt="" className="h-9 w-9 rounded-lg border border-brand-500/30 object-cover" />
                     <div>
@@ -480,6 +484,15 @@ GET    /api/admin/dashboard      Admin metrics`}
                 </div>
                 <Switch checked={form.allowUserServerCreation} onChange={(v) => set("allowUserServerCreation", v)} />
               </div>
+              <div className="mt-2 flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
+                <div>
+                  <p className="text-[0.82rem] font-medium text-zinc-200">Playit.gg tunnels</p>
+                  <p className="text-[0.68rem] text-zinc-500">
+                    Expose a server's port to the internet without port-forwarding. Adds a Tunnel tab to every server.
+                  </p>
+                </div>
+                <Switch checked={Boolean(form.enablePlayit)} onChange={(v) => set("enablePlayit", v)} />
+              </div>
             </Card>
 
             <Card>
@@ -644,7 +657,7 @@ GET    /api/admin/dashboard      Admin metrics`}
         )}
       </div>
 
-      <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-[#0b0b0e]/95 px-4 py-3 backdrop-blur-xl">
+      <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] zk-surface px-4 py-3 backdrop-blur-xl">
         <p className="text-[0.72rem] text-zinc-500">
           Changes apply immediately across the panel. Some security settings require existing sessions to re-authenticate.
         </p>

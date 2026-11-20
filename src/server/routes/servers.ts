@@ -5,6 +5,14 @@ import path from "path";
 import archiver from "archiver";
 import extract from "extract-zip";
 import { requireScope, requireAuth, requireAdmin, clientIp } from "../middleware/auth";
+import {
+  snapshot as playitSnapshot,
+  startTunnel,
+  stopTunnel,
+  restartTunnel,
+  resetTunnel,
+  purgeTunnel,
+} from "../services/playit";
 import { readJSON, writeJSON, id, nowISO, BACKUPS_DIR } from "../services/db";
 import { getSettings } from "../services/settings";
 import { isAdminRole, findUserById, listUsers } from "../services/users";
@@ -159,6 +167,35 @@ const PLAYER_FILES: Record<string, string> = {
   bannedIps: "banned-ips.json",
 };
 
+/**
+ * Reads the live player list out of the server's own log.
+ * ---------------------------------------------------------------------------
+ * Vanilla/Paper announce joins and leaves as "[Server thread/INFO]: <name>
+ * joined the game". Recent log lines are replayed in order so the roster is a
+ * real count of who is in the world right now — no RCON, no extra ports.
+ */
+const PLAYER_JOIN = /]:\s*([A-Za-z0-9_]{1,16}) joined the game/;
+const PLAYER_LEAVE = /]:\s*([A-Za-z0-9_]{1,16}) (?:left the game|lost connection)/;
+
+export const listOnlinePlayers = async (serverId: string) => {
+  const online = new Set<string>();
+  try {
+    const raw = await readConsole(serverId, 4000);
+    for (const line of raw.split(/\r?\n/)) {
+      const join = PLAYER_JOIN.exec(line);
+      if (join) {
+        online.add(join[1]);
+        continue;
+      }
+      const leave = PLAYER_LEAVE.exec(line);
+      if (leave) online.delete(leave[1]);
+    }
+  } catch {
+    /* empty roster */
+  }
+  return [...online];
+};
+
 router.get("/:id/players", requireScope("servers.read"), async (req: any, res) => {
   const server = await guardServer(req, res);
   if (!server) return;
@@ -178,8 +215,10 @@ router.get("/:id/players", requireScope("servers.read"), async (req: any, res) =
     read(PLAYER_FILES.banned),
     read(PLAYER_FILES.bannedIps),
   ]);
+  const onlinePlayers = await listOnlinePlayers(server.id);
   res.json({
-    online: false,
+    online: onlinePlayers.length > 0,
+    onlinePlayers,
     whitelistEnabled: await (async () => {
       try {
         const props = await fs.readFile(path.join(dir, "server.properties"), "utf8");
@@ -779,6 +818,8 @@ router.delete("/:id", requireScope("servers.write"), async (req: any, res) => {
   if (!server) return;
   if (!isAdminRole(req.user.role) && server.owner !== req.user.id)
     return res.status(403).json({ error: "Forbidden" });
+  // Kill any playit agent first: it outlives the server directory otherwise.
+  await purgeTunnel(server.id).catch(() => {});
   await deleteServerCompletely(server.id);
   const servers = await listServers();
   await saveServers(servers.filter((s) => s.id !== server.id));
@@ -1045,6 +1086,69 @@ router.get("/meta/software", requireScope("servers.read"), async (_req, res) => 
 });
 
 /** Java + Modrinth capability summary for one software/version pair. */
+// ---------------------------------------------------------------------------
+// Playit.gg tunnels
+// ---------------------------------------------------------------------------
+// Playit exposes a local port to the internet without port-forwarding. The panel
+// supervises the official agent per server; the operator claims the agent once
+// with the URL the agent prints, after which the tunnel is permanent.
+//
+// Gated by Panel Settings → Features → "Playit tunnels" so an operator can hide
+// the feature entirely (matching how JTG exposes it).
+
+const playitEnabled = async () => (await getSettings()).enablePlayit;
+const playitGate = async (res: any) => {
+  if (await playitEnabled()) return true;
+  res.status(403).json({
+    error: "Playit tunnels are disabled on this panel. An administrator can enable them in Panel Settings → Features.",
+  });
+  return false;
+};
+
+const tunnelPayload = (server: ServerRecord, state: any) => ({
+  ...state,
+  address: state.address || `${server.ip === "0.0.0.0" ? "0.0.0.0" : server.ip}:${server.port}`,
+  localPort: server.port,
+  enabled: true,
+});
+
+router.get("/:id/playit", requireScope("servers.read"), async (req: any, res) => {
+  if (!(await playitGate(res))) return;
+  const server = await guardServer(req, res);
+  if (!server) return;
+  res.json(tunnelPayload(server, playitSnapshot(server.id)));
+});
+
+router.post("/:id/playit/start", requireScope("servers.manage"), async (req: any, res) => {
+  if (!(await playitGate(res))) return;
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const state = await startTunnel(server.id);
+  res.json(tunnelPayload(server, state));
+});
+
+router.post("/:id/playit/restart", requireScope("servers.manage"), async (req: any, res) => {
+  if (!(await playitGate(res))) return;
+  const server = await guardServer(req, res);
+  if (!server) return;
+  const state = await restartTunnel(server.id);
+  res.json(tunnelPayload(server, state));
+});
+
+router.post("/:id/playit/stop", requireScope("servers.manage"), async (req: any, res) => {
+  if (!(await playitGate(res))) return;
+  const server = await guardServer(req, res);
+  if (!server) return;
+  res.json(tunnelPayload(server, await stopTunnel(server.id)));
+});
+
+router.post("/:id/playit/reset", requireScope("servers.manage"), async (req: any, res) => {
+  if (!(await playitGate(res))) return;
+  const server = await guardServer(req, res);
+  if (!server) return;
+  res.json(tunnelPayload(server, await resetTunnel(server.id)));
+});
+
 router.get("/meta/software/:id", requireScope("servers.read"), async (req, res) => {
   res.json(softwareSummary(String(req.params.id), String(req.query.version || "")));
 });

@@ -13,6 +13,7 @@ import { ServerList } from "./pages/user/ServerList";
 import { ServerView } from "./pages/user/ServerView";
 import { ApiKeysPage } from "./pages/user/ApiKeysPage";
 import { AccountPage } from "./pages/user/AccountPage";
+import { NotificationsPage } from "./pages/user/NotificationsPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { CreateServer } from "./pages/admin/CreateServer";
 import { AdminServers } from "./pages/admin/AdminServers";
@@ -20,6 +21,7 @@ import { NodesPage } from "./pages/admin/NodesPage";
 import { UserManagement } from "./pages/admin/UserManagement";
 import { AdminApiKeys } from "./pages/admin/AdminApiKeys";
 import { PanelSettings } from "./pages/admin/PanelSettings";
+import { ThemesPage } from "./pages/admin/ThemesPage";
 import { SystemPage } from "./pages/admin/SystemPage";
 import { Loader2, ShieldAlert, ServerCrash } from "lucide-react";
 
@@ -72,7 +74,7 @@ const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   if (user.role !== "admin" && user.role !== "owner") {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10 text-red-400">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-red-500/20 bg-red-500/[0.07] text-red-400">
           <ShieldAlert size={24} />
         </div>
         <h2 className="font-display text-lg font-bold text-zinc-100">Administrator access required</h2>
@@ -87,7 +89,7 @@ const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 const NotFound: React.FC = () => (
   <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
-    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-brand-500/25 bg-brand-500/10 text-brand-400">
+    <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-zinc-400">
       <ServerCrash size={24} />
     </div>
     <h2 className="font-display text-lg font-bold text-zinc-100">404 — Page not found</h2>
@@ -127,6 +129,7 @@ export const AppRoutes: React.FC = () => (
       <Route path="/servers/:id" element={<ServerView />} />
       <Route path="/api-keys" element={<ApiKeysPage />} />
       <Route path="/account" element={<AccountPage />} />
+      <Route path="/notifications" element={<NotificationsPage />} />
 
       <Route
         path="/admin"
@@ -181,6 +184,14 @@ export const AppRoutes: React.FC = () => (
         element={
           <RequireAdmin>
             <PanelSettings />
+          </RequireAdmin>
+        }
+      />
+      <Route
+        path="/admin/themes"
+        element={
+          <RequireAdmin>
+            <ThemesPage />
           </RequireAdmin>
         }
       />

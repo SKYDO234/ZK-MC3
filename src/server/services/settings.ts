@@ -51,6 +51,30 @@ export interface PanelSettings {
   defaultVersion: string;
   allowUserServerCreation: boolean;
 
+  /* ---------------------------------------------------------------------
+   * Appearance — the Themes & Fonts page writes these. They are served to
+   * every client through /api/settings so one save restyles the whole panel.
+   * ------------------------------------------------------------------- */
+  uiStyle: string;
+  sidebarStyle: string;
+  cardStyle: string;
+  topbarStyle: string;
+  cornerRadius: string;
+  sidebarWidth: string;
+  cardBorderGlow: string;
+  glassBlur: number;
+  fontScale: string;
+  animSpeed: string;
+  uiMotion: string;
+  /** Custom accent pair. Empty strings keep the brand palette from Branding. */
+  uiAccent: string;
+  uiAccent2: string;
+  panelFont: string;
+  wallpaper: string;
+  wallpaperType: string;
+  wallpaperPreset: string;
+  wallpaperOpacity: number;
+
   billingEnabled: boolean;
   currency: string;
   pricePerGbRam: number;
@@ -61,6 +85,9 @@ export interface PanelSettings {
   maintenanceMode: boolean;
   maintenanceMessage: string;
   loginAlert: boolean;
+
+  /** Playit.gg tunnels — the per-server "expose to the internet" feature. */
+  enablePlayit: boolean;
 
   updatedAt: string;
 }
@@ -117,6 +144,26 @@ export const DEFAULT_SETTINGS: PanelSettings = {
   defaultVersion: "1.21.4",
   allowUserServerCreation: false,
 
+  // Frosted glass is the shipped look: translucent cards over the wallpaper.
+  uiStyle: "frosted",
+  sidebarStyle: "glass",
+  cardStyle: "glass",
+  topbarStyle: "glass",
+  cornerRadius: "rounded",
+  sidebarWidth: "normal",
+  cardBorderGlow: "subtle",
+  glassBlur: 18,
+  fontScale: "normal",
+  animSpeed: "normal",
+  uiMotion: "on",
+  uiAccent: "",
+  uiAccent2: "",
+  panelFont: "",
+  wallpaper: "/wallpaper.jpg",
+  wallpaperType: "image",
+  wallpaperPreset: "",
+  wallpaperOpacity: 100,
+
   billingEnabled: true,
   currency: "USD",
   pricePerGbRam: 2.5,
@@ -127,6 +174,9 @@ export const DEFAULT_SETTINGS: PanelSettings = {
   maintenanceMode: false,
   maintenanceMessage: "ZK-MC3-PANEL is currently under maintenance. Please check back shortly.",
   loginAlert: true,
+
+  // Off until an administrator opts in, matching JTG's gate.
+  enablePlayit: false,
 
   updatedAt: new Date(0).toISOString(),
 };
@@ -167,6 +217,25 @@ export const publicSettings = async () => {
     maintenanceMessage: s.maintenanceMessage,
     billingEnabled: s.billingEnabled,
     currency: s.currency,
+    enablePlayit: s.enablePlayit,
+    uiStyle: s.uiStyle,
+    sidebarStyle: s.sidebarStyle,
+    cardStyle: s.cardStyle,
+    topbarStyle: s.topbarStyle,
+    cornerRadius: s.cornerRadius,
+    sidebarWidth: s.sidebarWidth,
+    cardBorderGlow: s.cardBorderGlow,
+    glassBlur: s.glassBlur,
+    fontScale: s.fontScale,
+    animSpeed: s.animSpeed,
+    uiMotion: s.uiMotion,
+    uiAccent: s.uiAccent,
+    uiAccent2: s.uiAccent2,
+    panelFont: s.panelFont,
+    wallpaper: s.wallpaper,
+    wallpaperType: s.wallpaperType,
+    wallpaperPreset: s.wallpaperPreset,
+    wallpaperOpacity: s.wallpaperOpacity,
     allowUserServerCreation: s.allowUserServerCreation,
     updatedAt: s.updatedAt,
   };

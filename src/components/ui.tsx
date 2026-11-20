@@ -22,13 +22,13 @@ export const CardHeader: React.FC<{
   <div className={clsx("flex flex-wrap items-start justify-between gap-3", className)}>
     <div className="flex items-start gap-3">
       {icon && (
-        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-brand-400">
+        <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.025] text-zinc-400">
           {icon}
         </div>
       )}
       <div>
-        <h3 className="text-[0.95rem] font-semibold tracking-tight text-zinc-100">{title}</h3>
-        {subtitle && <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>}
+        <h3 className="text-[0.88rem] font-semibold tracking-tight text-zinc-100">{title}</h3>
+        {subtitle && <p className="mt-0.5 text-[0.72rem] text-zinc-500">{subtitle}</p>}
       </div>
     </div>
     {action}
@@ -142,6 +142,11 @@ export const ResourceMeter: React.FC<{
 };
 
 /* ---------------------------------------------------------------- StatCard */
+/*
+ * Accent rule along the top, tiny uppercase label, monospaced value. The tone
+ * is carried by the rule and the number, so a row of these reads as a single
+ * instrument strip rather than four unrelated boxes.
+ */
 export const StatCard: React.FC<{
   label: string;
   value: React.ReactNode;
@@ -149,47 +154,44 @@ export const StatCard: React.FC<{
   icon?: React.ReactNode;
   trend?: { value: string; positive?: boolean };
   accent?: boolean;
+  tone?: "neutral" | "brand" | "green" | "red" | "blue" | "amber";
   className?: string;
   footer?: React.ReactNode;
-}> = ({ label, value, hint, icon, trend, accent, className, footer }) => (
-  <div
-    className={clsx(
-      "zk-card zk-card-hover relative overflow-hidden p-5",
-      accent && "border-brand-500/25",
-      className
-    )}
-  >
-    {accent && (
-      <div className="pointer-events-none absolute -right-10 -top-14 h-32 w-32 rounded-full bg-brand-500/20 blur-3xl" />
-    )}
-    <div className="relative flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.11em] text-zinc-500">{label}</p>
-        <p className="mt-2 font-display text-[1.65rem] font-bold leading-none tracking-tight text-zinc-50">{value}</p>
-        {hint && <p className="mt-2 text-xs text-zinc-500">{hint}</p>}
+}> = ({ label, value, hint, icon, trend, accent, tone, className, footer }) => {
+  const palette: Record<string, { rule: string; value: string; icon: string }> = {
+    neutral: { rule: "rgba(255,255,255,0.16)", value: "#fafafa", icon: "text-zinc-500" },
+    brand: { rule: "#ff7a18", value: "#ffab52", icon: "text-brand-500" },
+    green: { rule: "#22c55e", value: "#4ade80", icon: "text-emerald-500" },
+    red: { rule: "#ef4444", value: "#f87171", icon: "text-rose-500" },
+    blue: { rule: "#3b82f6", value: "#60a5fa", icon: "text-blue-500" },
+    amber: { rule: "#f59e0b", value: "#fbbf24", icon: "text-amber-500" },
+  };
+  const skin = palette[tone || (accent ? "brand" : "neutral")];
+  return (
+    <div
+      className={clsx("zk-stat", className)}
+      style={{ ["--stat-accent" as any]: skin.rule }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="zk-stat-label">{label}</p>
+          <p className="zk-stat-value" style={{ color: skin.value }}>
+            {value}
+          </p>
+        </div>
+        {icon && <span className={clsx("mt-0.5 flex-none", skin.icon)}>{icon}</span>}
       </div>
-      {icon && (
-        <div
-          className={clsx(
-            "flex h-10 w-10 flex-none items-center justify-center rounded-xl border",
-            accent
-              ? "border-brand-500/30 bg-brand-500/15 text-brand-300"
-              : "border-white/10 bg-white/[0.04] text-zinc-400"
-          )}
-        >
-          {icon}
+      {trend && (
+        <div className="mt-2 flex items-center gap-1.5 text-[0.66rem]">
+          <span className={trend.positive ? "text-emerald-400" : "text-rose-400"}>{trend.value}</span>
+          <span className="text-zinc-600">vs last month</span>
         </div>
       )}
+      {hint && <p className="zk-stat-hint">{hint}</p>}
+      {footer && <div className="mt-3">{footer}</div>}
     </div>
-    {trend && (
-      <div className="relative mt-3 flex items-center gap-1.5 text-[0.7rem]">
-        <span className={trend.positive ? "text-emerald-400" : "text-red-400"}>{trend.value}</span>
-        <span className="text-zinc-600">vs last month</span>
-      </div>
-    )}
-    {footer && <div className="relative mt-3">{footer}</div>}
-  </div>
-);
+  );
+};
 
 /* ------------------------------------------------------------------ Empty */
 export const EmptyState: React.FC<{
@@ -198,12 +200,12 @@ export const EmptyState: React.FC<{
   message?: string;
   action?: React.ReactNode;
 }> = ({ icon, title, message, action }) => (
-  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.012] px-6 py-14 text-center">
-    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-brand-500/20 bg-brand-500/10 text-brand-400">
+  <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.07] zk-surface px-6 py-16 text-center">
+    <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.02] text-zinc-500">
       {icon}
     </div>
-    <h3 className="text-sm font-semibold text-zinc-200">{title}</h3>
-    {message && <p className="mt-1.5 max-w-sm text-xs leading-relaxed text-zinc-500">{message}</p>}
+    <h3 className="text-[0.85rem] font-semibold text-zinc-200">{title}</h3>
+    {message && <p className="mt-1.5 max-w-sm text-[0.75rem] leading-relaxed text-zinc-500">{message}</p>}
     {action && <div className="mt-5">{action}</div>}
   </div>
 );
@@ -234,9 +236,9 @@ export const Modal: React.FC<{
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm sm:items-center">
-      <div className={clsx("zk-card zk-fade-up my-8 w-full", width)}>
-        <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] p-5">
+    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/80 p-4 sm:items-center">
+      <div className={clsx("zk-fade-up my-8 w-full rounded-xl border border-white/[0.09] zk-surface", width)}>
+        <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] p-4">
           <div className="flex items-start gap-3">
             {icon && (
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500/12 text-brand-400">
@@ -286,16 +288,16 @@ export const Tabs: React.FC<{
   onChange: (id: string) => void;
   className?: string;
 }> = ({ tabs, active, onChange, className }) => (
-  <div className={clsx("no-scrollbar flex gap-1 overflow-x-auto rounded-xl border border-white/[0.07] bg-black/30 p-1", className)}>
+  <div className={clsx("no-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-white/[0.07] zk-surface p-1", className)}>
     {tabs.map((tab) => (
       <button
         key={tab.id}
         onClick={() => onChange(tab.id)}
         className={clsx(
-          "flex flex-none items-center gap-2 rounded-lg px-3.5 py-2 text-[0.8rem] font-medium transition",
+          "flex flex-none items-center gap-1.5 rounded-md px-3 py-1.5 text-[0.77rem] font-medium transition",
           active === tab.id
-            ? "bg-brand-500/15 text-brand-200 shadow-[inset_0_0_0_1px_rgba(255,122,24,0.28)]"
-            : "text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+            ? "bg-white/[0.09] text-zinc-100"
+            : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
         )}
       >
         {tab.icon}
@@ -400,13 +402,13 @@ export const Switch: React.FC<{ checked: boolean; onChange: (v: boolean) => void
     <span
       className={clsx(
         "relative h-[22px] w-[40px] flex-none rounded-full border transition",
-        checked ? "border-brand-500/60 bg-brand-500/30" : "border-white/10 bg-white/[0.06]"
+        checked ? "border-white/70 bg-white/80" : "border-white/10 bg-white/[0.06]"
       )}
     >
       <span
         className={clsx(
           "absolute top-[2px] h-[16px] w-[16px] rounded-full transition-all",
-          checked ? "left-[20px] bg-brand-400 shadow-[0_0_12px_rgba(255,122,24,0.8)]" : "left-[2px] bg-zinc-500"
+          checked ? "left-[20px] bg-[#0a0a0a]" : "left-[2px] bg-zinc-500"
         )}
       />
     </span>

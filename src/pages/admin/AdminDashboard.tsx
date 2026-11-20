@@ -22,6 +22,9 @@ import {
   CheckCircle2,
   XCircle,
   Terminal,
+  Play,
+  StopCircle,
+  UserCog,
 } from "lucide-react";
 import {
   AreaChart,
@@ -73,15 +76,20 @@ export const AdminDashboard: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={<ShieldCheck size={20} />}
-        title="Administration Overview"
-        subtitle="Full visibility over your hosting infrastructure — users, nodes, servers and system health."
+        title="Admin Overview"
+        subtitle="System-wide monitoring and management."
+        badge={
+          <span className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[0.58rem] font-bold uppercase tracking-[0.1em] text-emerald-400">
+            <span className="h-1 w-1 rounded-full bg-emerald-400" /> Operational
+          </span>
+        }
         actions={
           <>
             <Button size="sm" icon={<RefreshCw size={14} />} onClick={reload}>
               Refresh
             </Button>
             <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => navigate("/admin/create-server")}>
-              Create server
+              Create Server
             </Button>
           </>
         }
@@ -91,28 +99,130 @@ export const AdminDashboard: React.FC = () => {
         <StatCard
           label="Total users"
           value={counts.users}
-          icon={<Users size={17} />}
-          accent
-          hint={`${counts.admins} staff · ${counts.suspendedUsers} suspended`}
+          icon={<Users size={14} />}
+          tone="blue"
+          hint={`Registered in the panel`}
         />
         <StatCard
           label="Total servers"
           value={counts.servers}
-          icon={<Server size={17} />}
+          icon={<Server size={14} />}
+          tone="neutral"
           hint={`${counts.onlineServers} online · ${counts.offlineServers} offline`}
         />
         <StatCard
-          label="Nodes"
-          value={counts.nodes}
-          icon={<Boxes size={17} />}
-          hint={`${counts.onlineNodes} online`}
+          label="Running"
+          value={counts.onlineServers}
+          icon={<Play size={14} />}
+          tone="green"
+          hint={`Active server processes`}
         />
         <StatCard
-          label="Monthly revenue"
-          value={formatMoney(resources.revenue, resources.currency)}
-          icon={<DollarSign size={17} />}
-          hint={`${counts.apiKeys} API keys · ${counts.backups} backups`}
+          label="Stopped"
+          value={counts.offlineServers}
+          icon={<StopCircle size={14} />}
+          tone="red"
+          hint={`Not currently running`}
         />
+      </div>
+
+      {/* System information + quick actions, as in the reference overview. */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <div className="rounded-xl border border-white/[0.07] zk-surface">
+            <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
+              <Cpu size={13} className="text-zinc-500" />
+              <h3 className="zk-eyebrow">System Information</h3>
+            </div>
+            <div className="zk-cellgrid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+              {[
+                { label: "Platform", value: system?.platform || "—" },
+                { label: "Node.js", value: system?.nodeVersion || "—" },
+                { label: "Panel Version", value: "1.0.0" },
+                { label: "CPU Cores", value: String(system?.cpuCores ?? "—") },
+                { label: "Uptime", value: formatUptime(system?.uptime ?? 0) },
+                { label: "Total Memory", value: formatMb(system?.memoryTotalMb ?? 0) },
+                { label: "Free Memory", value: formatMb(system?.memoryFreeMb ?? 0) },
+                { label: "Disk Space", value: `${system?.diskPercent ?? 0}% used · ${formatMb(system?.diskFreeMb ?? 0)} free` },
+                { label: "Architecture", value: system?.arch || "—" },
+                { label: "OS Release", value: system?.platform?.split(" ").slice(1).join(" ") || "—" },
+              ].map((cell) => (
+                <div key={cell.label}>
+                  <p className="zk-cell-label">{cell.label}</p>
+                  <p className="zk-cell-value">{cell.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/[0.07] zk-surface">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
+            <Plus size={13} className="text-zinc-500" />
+            <h3 className="zk-eyebrow">Quick Actions</h3>
+          </div>
+          <div className="space-y-1.5 p-2.5">
+            <button
+              onClick={() => navigate("/admin/users")}
+              className="flex w-full items-center gap-2 rounded-md bg-[#ededed] px-3 py-2 text-[0.78rem] font-semibold text-[#0a0a0a] transition hover:bg-white"
+            >
+              <UserCog size={14} /> Create User
+            </button>
+            {[
+              { to: "/admin/create-server", label: "Create Server", icon: <Server size={14} /> },
+              { to: "/admin/nodes", label: "Create Node", icon: <Boxes size={14} /> },
+              { to: "/admin/settings", label: "Panel Settings", icon: <Settings2 size={14} /> },
+            ].map((item) => (
+              <button
+                key={item.to}
+                onClick={() => navigate(item.to)}
+                className="flex w-full items-center gap-2 rounded-md border border-white/[0.07] px-3 py-2 text-[0.78rem] font-medium text-zinc-300 transition hover:border-white/[0.14] hover:bg-white/[0.03]"
+              >
+                {item.icon} {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="border-t border-white/[0.06] px-4 py-2.5">
+            <h3 className="zk-eyebrow">At a Glance</h3>
+          </div>
+          <div className="space-y-2 px-2.5 pb-2.5">
+            {[
+              {
+                label: "Server uptime",
+                value: `${counts.onlineServers} running`,
+                tone: counts.onlineServers > 0 ? "text-emerald-400" : "text-zinc-500",
+                dot: counts.onlineServers > 0 ? "bg-emerald-400" : "bg-zinc-600",
+                icon: <Activity size={13} />,
+              },
+              {
+                label: "Admin",
+                value: `${counts.admins} staff users`,
+                tone: "text-blue-400",
+                dot: "bg-blue-400",
+                icon: <ShieldCheck size={13} />,
+              },
+              {
+                label: "Panel status",
+                value: "Operational",
+                tone: "text-emerald-400",
+                dot: "bg-emerald-400",
+                icon: <CheckCircle2 size={13} />,
+              },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center gap-2.5 rounded-md border border-white/[0.05] px-2.5 py-2">
+                <span className={`flex h-6 w-6 flex-none items-center justify-center rounded bg-white/[0.04] ${row.tone}`}>
+                  {row.icon}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.72rem] font-medium text-zinc-300">{row.label}</p>
+                  <p className="truncate text-[0.62rem] text-zinc-600">{row.value}</p>
+                </div>
+                <span className={`h-1.5 w-1.5 flex-none rounded-full ${row.dot}`} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-3">
@@ -371,9 +481,14 @@ export const AdminDashboard: React.FC = () => {
           Plan limits: {settings.panelName} caps each server at {formatMb(panelSettings?.maxRamPerServer ?? 8192)} RAM and{" "}
           {panelSettings?.maxServersPerUser ?? 5} servers per user — adjust these in Panel Settings.
         </span>
-        <Link to="/admin/settings" className="ml-auto font-medium text-brand-400 hover:text-brand-300">
-          Open settings →
-        </Link>
+        <div className="ml-auto flex items-center gap-4">
+          <Link to="/admin/themes" className="font-medium text-zinc-300 hover:text-white">
+            Themes &amp; Fonts →
+          </Link>
+          <Link to="/admin/settings" className="font-medium text-brand-400 hover:text-brand-300">
+            Open settings →
+          </Link>
+        </div>
       </div>
     </div>
   );

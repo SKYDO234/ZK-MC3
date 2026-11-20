@@ -17,8 +17,8 @@ const BASE = process.env.QA_BASE || "http://127.0.0.1:31120";
 const TOKEN = process.env.QA_TOKEN || "";
 const WIDTH = Number(process.env.QA_WIDTH || 1440);
 const ROUTES = (process.env.QA_ROUTES ||
-  "/login,/register,/forgot-password,/dashboard,/servers,/api-keys,/account," +
-  "/admin,/admin/create-server,/admin/servers,/admin/nodes,/admin/users,/admin/api-keys,/admin/settings"
+  "/login,/register,/forgot-password,/dashboard,/servers,/api-keys,/account,/notifications," +
+  "/admin,/admin/create-server,/admin/servers,/admin/nodes,/admin/users,/admin/api-keys,/admin/settings,/admin/themes"
 ).split(",");
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
@@ -131,6 +131,12 @@ async function renderRoute(route) {
   const bounced = !PUBLIC.includes(route) && isBounce && !hasAppShell;
   if (bounced) errors.push("auth: route rendered the login screen — QA_TOKEN missing, expired, or the shell failed to mount");
 
+  // A blank shell can still emit a few KB of class names. Assert that the page
+  // actually painted words, which is what a collapsed render never does.
+  if (text.replace(/\s/g, "").length < 60) {
+    errors.push(`render: only ${text.trim().length} characters of visible text — the page did not paint`);
+  }
+
   return { route, bytes: html.length, errors: [...new Set(errors)], preview: text.slice(0, 100) };
 }
 
@@ -138,8 +144,9 @@ const results = [];
 for (const route of ROUTES) {
   const r = await renderRoute(route.trim());
   results.push(r);
-  // Full-page forms (e.g. the forced password rotation) are legitimately small.
-  const MIN_BYTES = ["/change-password"].includes(route.trim()) ? 2500 : 4000;
+  // Compact screens (auth cards, the password rotation form) are legitimately
+  // small, so the guard is painted-word count, not markup bulk.
+  const MIN_BYTES = 1500;
   const bad = r.errors.length > 0 || r.bytes < MIN_BYTES;
   console.log(
     `${bad ? "✖" : "✔"} ${route.padEnd(26)} ${String(r.bytes).padStart(7)} bytes` +
@@ -151,6 +158,6 @@ for (const route of ROUTES) {
 fs.rmSync(path.join(ROOT, "qa-entry.tsx"), { force: true });
 fs.rmSync(path.join(ROOT, "qa-bundle.js"), { force: true });
 
-const failures = results.filter((r) => r.errors.length || (r.bytes < 4000 && !r.route.includes("change-password")));
+const failures = results.filter((r) => r.errors.length || r.bytes < 1500);
 console.log(`\n${results.length - failures.length}/${results.length} routes rendered cleanly · artefacts in ${OUT}`);
 process.exit(failures.length ? 1 : 0);
