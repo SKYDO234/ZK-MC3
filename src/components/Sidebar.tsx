@@ -11,6 +11,7 @@ import {
   Boxes,
   Users,
   Settings2,
+  Palette,
   Cpu,
   LogOut,
   Bell,
@@ -56,6 +57,7 @@ const ADMIN_NAV: NavGroup = {
     { to: "/admin/nodes", label: "Nodes", icon: <Boxes size={16} /> },
     { to: "/admin/servers", label: "Servers", icon: <Server size={16} /> },
     { to: "/admin/settings", label: "Panel Settings", icon: <Settings2 size={16} /> },
+    { to: "/admin/themes", label: "Themes & Fonts", icon: <Palette size={16} /> },
     { to: "/admin/api-keys", label: "API Keys", icon: <KeyRound size={16} /> },
     { to: "/admin/system", label: "System", icon: <Cpu size={16} /> },
   ],
@@ -125,7 +127,7 @@ export const Sidebar: React.FC<{
       />
       <aside
         className={clsx(
-          "fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col border-r border-white/[0.07] bg-black transition-transform duration-200 lg:translate-x-0",
+          "zk-sidebar fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col border-r border-white/[0.07] bg-black transition-transform duration-200 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >

@@ -1,5 +1,6 @@
 import React from "react";
 import { useSettings } from "../../context/SettingsContext";
+import { WallpaperLayer } from "../../components/WallpaperLayer";
 
 /**
  * Auth shell
@@ -18,11 +19,16 @@ export const AuthShell: React.FC<{
   const { settings } = useSettings();
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-black px-4 py-10">
+    <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
       <div className="zk-app-bg" />
+      <WallpaperLayer
+        url={settings.wallpaper}
+        type={settings.wallpaperType}
+        preset={settings.wallpaperPreset}
+      />
 
       <div className={`relative w-full ${wide ? "max-w-[520px]" : "max-w-[400px]"}`}>
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0c] px-7 pb-6 pt-7">
+        <div className="zk-card px-7 pb-6 pt-7">
           {/* brand block */}
           <div className="flex flex-col items-center text-center">
             <img

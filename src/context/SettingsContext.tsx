@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { Appearance, APPEARANCE_DEFAULTS, applyAppearance } from "../lib/appearance";
 
 export interface PublicSettings {
   panelName: string;
@@ -26,7 +27,10 @@ export interface PublicSettings {
   enablePlayit?: boolean;
 }
 
-const FALLBACK: PublicSettings = {
+/** Identity fields plus the appearance keys written by Themes & Fonts. */
+export interface PublicSettingsWithAppearance extends PublicSettings, Appearance {}
+
+const FALLBACK: PublicSettingsWithAppearance = {
   panelName: "ZK-MC3-PANEL",
   panelTagline: "Minecraft Hosting Panel",
   companyName: "ZK-STUDIO",
@@ -47,10 +51,11 @@ const FALLBACK: PublicSettings = {
   currency: "USD",
   allowUserServerCreation: false,
   enablePlayit: false,
+  ...APPEARANCE_DEFAULTS,
 };
 
 interface SettingsContextValue {
-  settings: PublicSettings;
+  settings: PublicSettingsWithAppearance;
   loading: boolean;
   refresh: () => Promise<void>;
 }
@@ -62,12 +67,12 @@ const SettingsContext = createContext<SettingsContextValue>({
 });
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<PublicSettings>(FALLBACK);
+  const [settings, setSettings] = useState<PublicSettingsWithAppearance>(FALLBACK);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
-      const data = await api<PublicSettings>("/settings");
+      const data = await api<Partial<PublicSettingsWithAppearance>>("/settings");
       setSettings({ ...FALLBACK, ...data });
     } catch {
       setSettings(FALLBACK);
@@ -82,8 +87,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     document.title = `${settings.panelName} · ${settings.panelTagline}`;
-    const root = document.documentElement;
-    root.style.setProperty("--brand", settings.primaryColor);
+    applyAppearance(settings, settings.primaryColor);
     const icon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     if (icon && settings.faviconUrl) icon.href = settings.faviconUrl;
   }, [settings]);

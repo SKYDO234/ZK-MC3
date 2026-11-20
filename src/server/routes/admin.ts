@@ -19,7 +19,8 @@ import { createBackupZip } from "../services/backups";
 import { panelLogs } from "../services/panellog";
 
 const router = Router();
-const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 8 * 1024 * 1024 } });
+// Wallpapers can be large (AMC allows 200 MB); everything else is small.
+const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 200 * 1024 * 1024 } });
 
 router.get("/dashboard", requireAdmin, async (_req, res) => {
   res.json(await buildDashboard());
@@ -66,6 +67,8 @@ router.put("/settings", requireAdmin, async (req: any, res) => {
     "pricePerGbRam",
     "pricePerCpuCore",
     "pricePerGbDisk",
+    "glassBlur",
+    "wallpaperOpacity",
   ];
   for (const key of numericKeys) {
     if (payload[key] !== undefined) payload[key] = Number(payload[key]);
@@ -81,6 +84,36 @@ router.put("/settings", requireAdmin, async (req: any, res) => {
     ip: clientIp(req),
   });
   res.json({ ...settings, smtpPass: settings.smtpPass ? "********" : "" });
+});
+
+/* ---------------------------------------------------------------------------
+ * Appearance — wallpaper upload / presets
+ * ---------------------------------------------------------------------------
+ * A panel background can be an uploaded image or video, a direct URL, or one of
+ * the built-in gradients. Files land in public/uploads so they are served by the
+ * same static handler as the logo, and the URL is stored in settings so every
+ * client picks it up on the next /api/settings poll.
+ */
+router.post("/settings/wallpaper/upload", requireAdmin, upload.single("file"), async (req: any, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  const ext = path.extname(req.file.originalname || "").toLowerCase() || ".jpg";
+  const imageExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"];
+  const videoExts = [".mp4", ".webm", ".mov"];
+  if (![...imageExts, ...videoExts].includes(ext))
+    return res.status(400).json({ error: "Background must be JPG, PNG, GIF, WebP, AVIF, MP4 or WebM" });
+  const fileName = `wallpaper-${Date.now()}${ext}`;
+  const target = path.join(process.cwd(), "public", "uploads", fileName);
+  await fs.ensureDir(path.dirname(target));
+  await fs.move(req.file.path, target, { overwrite: true });
+  const url = `/uploads/${fileName}`;
+  const type = videoExts.includes(ext) ? "video" : "image";
+  await saveSettings({ wallpaper: url, wallpaperType: type, wallpaperPreset: "" });
+  res.json({ success: true, wallpaper: url, wallpaperType: type });
+});
+
+router.delete("/settings/wallpaper", requireAdmin, async (_req, res) => {
+  await saveSettings({ wallpaper: "", wallpaperType: "", wallpaperPreset: "" });
+  res.json({ success: true });
 });
 
 router.post("/settings/logo", requireAdmin, upload.single("logo"), async (req: any, res) => {

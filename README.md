@@ -229,6 +229,30 @@ Resource Limits, Billing, System** — covering logo upload, colour theming, ses
 policy, SMTP, rate limits, per-server quotas, pricing model, maintenance mode and
 JSON data export.
 
+### Themes & Fonts (`/admin/themes`)
+The whole panel is themeable at runtime — one save restyles every account.
+
+- **Eight UI presets** (Solid, Frosted, Glass, Minimal, Cyberpunk, Neumorphic,
+  Neon, Terminal) plus per-surface controls for sidebar, cards, top bar, corner
+  radius, sidebar width, border glow, glass blur, font scale, animation speed and
+  motion. Everything previews live before you commit.
+- **Accent colour** — twelve gradient swatches plus primary/secondary pickers;
+  the choice re-colours Tailwind's brand scale through CSS variables.
+- **Fonts** — pick from sixteen families (with gaming faces such as Oxanium,
+  Orbitron and Rajdhani), loaded on demand from Google Fonts.
+- **Background** — upload an image or a looping video (≤200 MB, progress bar),
+  paste a direct URL, choose a built-in gradient, or remove it. A wallpaper
+  layer sits behind translucent glass surfaces; solid presets hide it.
+- Every value is stored in panel settings and served from `/api/settings`, so a
+  new client paints the chosen theme on first render.
+
+### Server console
+A three-column workspace: the server rail (status card, power actions, menu),
+telemetry gauges for CPU / memory / storage with sparklines, a live player
+roster read from the server's own join/leave log lines, and a **System console**
+window with a stream id, live clock, quick-command chips and an
+`admin@node:~$` prompt.
+
 ### Platform
 - JSON datastore with **atomic, serialised writes** (no corruption under load).
 - Socket.IO for live logs, status changes and system stats.
@@ -311,6 +335,8 @@ GET    /api/admin/system/logs          Captured panel output (admin)
 POST   /api/admin/system/action        backup-all|stop-all|clear-cache|
                                        clear-logs|restart-panel (admin)
 GET    /api/admin/export               JSON snapshot (admin)
+POST   /api/admin/settings/wallpaper/upload   Upload panel background (admin)
+DELETE /api/admin/settings/wallpaper          Remove panel background (admin)
 ```
 
 ---

@@ -122,7 +122,8 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
           { type: "page", label: "Create Server", hint: "Provision a new instance", to: "/admin/create-server" },
           { type: "page", label: "Nodes", hint: "Infrastructure", to: "/admin/nodes" },
           { type: "page", label: "User Management", hint: "Accounts", to: "/admin/users" },
-          { type: "page", label: "Panel Settings", hint: "Configuration", to: "/admin/settings" }
+          { type: "page", label: "Panel Settings", hint: "Configuration", to: "/admin/settings" },
+          { type: "page", label: "Themes & Fonts", hint: "Configuration", to: "/admin/themes" }
         );
       }
       let servers: SearchResult[] = [];
@@ -163,6 +164,7 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
       "/admin/nodes": "Nodes",
       "/admin/servers": "Servers",
       "/admin/settings": "Panel Settings",
+      "/admin/themes": "Themes & Fonts",
       "/admin/api-keys": "API Keys",
       "/admin/system": "System",
       "/admin/create-server": "Create Server",
@@ -185,7 +187,7 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
   };
 
   return (
-    <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-black/90 backdrop-blur-xl">
+    <header className="zk-topbar sticky top-0 z-30 border-b border-white/[0.07] zk-topbar-ink">
       <div className="flex h-[52px] items-center gap-2 px-4 sm:px-6">
         <button onClick={onMenuClick} className="zk-btn zk-btn-subtle zk-btn-sm -ml-1 px-1.5 lg:hidden">
           <Menu size={17} />
@@ -234,7 +236,7 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
             </button>
 
             {notifOpen && (
-              <div className="zk-fade-up absolute right-0 top-10 z-50 w-[min(92vw,360px)] overflow-hidden rounded-lg border border-white/[0.09] bg-[#0a0a0c]">
+              <div className="zk-fade-up absolute right-0 top-10 z-50 w-[min(92vw,360px)] overflow-hidden rounded-lg border border-white/[0.09] zk-surface">
                 <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
                   <p className="text-sm font-semibold text-zinc-100">Notifications</p>
                   <button
@@ -305,7 +307,7 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
             </button>
 
             {userOpen && (
-              <div className="zk-fade-up absolute right-0 top-10 z-50 w-56 overflow-hidden rounded-lg border border-white/[0.09] bg-[#0a0a0c] p-1.5">
+              <div className="zk-fade-up absolute right-0 top-10 z-50 w-56 overflow-hidden rounded-lg border border-white/[0.09] zk-surface p-1.5">
                 <div className="px-3 py-2">
                   <p className="truncate text-[0.82rem] font-semibold text-zinc-100">{user?.name}</p>
                   <p className="truncate text-[0.68rem] text-zinc-500">{user?.email}</p>
@@ -351,7 +353,7 @@ export const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
           className="fixed inset-0 z-[100] flex items-start justify-center bg-black/80 p-4 pt-[10vh]"
           onClick={() => setSearchOpen(false)}
         >
-          <div className="zk-fade-up w-full max-w-xl overflow-hidden rounded-xl border border-white/[0.09] bg-[#0a0a0c]" onClick={(e) => e.stopPropagation()}>
+          <div className="zk-fade-up w-full max-w-xl overflow-hidden rounded-xl border border-white/[0.09] zk-surface" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3 border-b border-white/[0.07] px-4">
               <Search size={16} className="text-zinc-500" />
               <input

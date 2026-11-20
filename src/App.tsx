@@ -21,6 +21,7 @@ import { NodesPage } from "./pages/admin/NodesPage";
 import { UserManagement } from "./pages/admin/UserManagement";
 import { AdminApiKeys } from "./pages/admin/AdminApiKeys";
 import { PanelSettings } from "./pages/admin/PanelSettings";
+import { ThemesPage } from "./pages/admin/ThemesPage";
 import { SystemPage } from "./pages/admin/SystemPage";
 import { Loader2, ShieldAlert, ServerCrash } from "lucide-react";
 
@@ -183,6 +184,14 @@ export const AppRoutes: React.FC = () => (
         element={
           <RequireAdmin>
             <PanelSettings />
+          </RequireAdmin>
+        }
+      />
+      <Route
+        path="/admin/themes"
+        element={
+          <RequireAdmin>
+            <ThemesPage />
           </RequireAdmin>
         }
       />

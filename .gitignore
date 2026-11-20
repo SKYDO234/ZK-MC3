@@ -11,3 +11,6 @@ crash.log
 npm-debug.log*
 qa-entry.tsx
 qa-bundle.js
+
+# runtime media uploaded through Themes & Fonts
+public/uploads/

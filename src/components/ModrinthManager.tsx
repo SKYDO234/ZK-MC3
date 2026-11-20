@@ -489,7 +489,7 @@ const VersionPicker: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-[#0a0a0c]">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-white/[0.09] zk-surface">
         <div className="flex items-start gap-3 border-b border-white/[0.06] p-4">
           {hit.iconUrl ? (
             <img src={hit.iconUrl} alt="" className="h-11 w-11 flex-none rounded-lg object-cover" />

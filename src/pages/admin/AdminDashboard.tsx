@@ -129,7 +129,7 @@ export const AdminDashboard: React.FC = () => {
       {/* System information + quick actions, as in the reference overview. */}
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <div className="rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+          <div className="rounded-xl border border-white/[0.07] zk-surface">
             <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
               <Cpu size={13} className="text-zinc-500" />
               <h3 className="zk-eyebrow">System Information</h3>
@@ -156,7 +156,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+        <div className="rounded-xl border border-white/[0.07] zk-surface">
           <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
             <Plus size={13} className="text-zinc-500" />
             <h3 className="zk-eyebrow">Quick Actions</h3>
@@ -481,9 +481,14 @@ export const AdminDashboard: React.FC = () => {
           Plan limits: {settings.panelName} caps each server at {formatMb(panelSettings?.maxRamPerServer ?? 8192)} RAM and{" "}
           {panelSettings?.maxServersPerUser ?? 5} servers per user — adjust these in Panel Settings.
         </span>
-        <Link to="/admin/settings" className="ml-auto font-medium text-brand-400 hover:text-brand-300">
-          Open settings →
-        </Link>
+        <div className="ml-auto flex items-center gap-4">
+          <Link to="/admin/themes" className="font-medium text-zinc-300 hover:text-white">
+            Themes &amp; Fonts →
+          </Link>
+          <Link to="/admin/settings" className="font-medium text-brand-400 hover:text-brand-300">
+            Open settings →
+          </Link>
+        </div>
       </div>
     </div>
   );

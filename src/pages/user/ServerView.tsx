@@ -37,6 +37,9 @@ import {
   Shield,
   Ban,
   Globe2,
+  Lock,
+  Hash,
+  LayoutGrid,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import {
@@ -585,7 +588,7 @@ const BackupsTab: React.FC<{ server: any }> = ({ server }) => {
 };
 
 /* --------------------------------------------------------------- Properties */
-const SettingsTab: React.FC<{ server: any; onSaved: () => void }> = ({ server, onSaved }) => {
+const PropertiesAndSettings: React.FC<{ server: any; onSaved: () => void }> = ({ server, onSaved }) => {
   const { success, error } = useToast();
   const { data, reload } = useApi<{ content: string }>(`/servers/${server.id}/properties`);
   const [content, setContent] = useState("");
@@ -703,6 +706,53 @@ const PluginsTab: React.FC<{ server: any }> = ({ server }) => (
 );
 
 /* ----------------------------------------------------------------- Main page */
+
+/** One row in the left rail's MENU list. */
+const RailItem: React.FC<{
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  badge?: React.ReactNode;
+  onClick: () => void;
+}> = ({ active, icon, label, badge, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={
+      "group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.78rem] transition " +
+      (active
+        ? "bg-white/[0.09] font-semibold text-zinc-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
+        : "font-medium text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200")
+    }
+  >
+    <span
+      className={
+        "flex-none transition " + (active ? "text-brand-400" : "text-zinc-600 group-hover:text-zinc-400")
+      }
+    >
+      {icon}
+    </span>
+    <span className="min-w-0 flex-1 truncate">{label}</span>
+    {badge}
+  </button>
+);
+
+/** The little state dot + label pair used in the status card. */
+const StateDot: React.FC<{ status: string }> = ({ status }) => (
+  <span
+    className={
+      "h-1.5 w-1.5 flex-none rounded-full " +
+      (status === "online"
+        ? "bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.12)]"
+        : status === "starting" || status === "stopping" || status === "installing"
+        ? "bg-amber-400 animate-pulse"
+        : status === "error"
+        ? "bg-rose-400"
+        : "bg-zinc-600")
+    }
+  />
+);
+
 export const ServerView: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -782,94 +832,89 @@ export const ServerView: React.FC = () => {
     );
   }
 
+  const liveStatus = stats?.isRunning ? "online" : stats?.status || server.status;
+  const isOnline = liveStatus === "online";
+
   const tabs = [
-    { id: "console", label: "Console", icon: <Terminal size={14} /> },
-    { id: "files", label: "File Manager", icon: <FolderTree size={14} /> },
-    { id: "plugins", label: "Plugins & Mods", icon: <Puzzle size={14} /> },
-    { id: "players", label: "Players", icon: <Users size={14} /> },
-    ...(playitEnabled ? [{ id: "tunnel", label: "Tunnel", icon: <Globe2 size={14} /> }] : []),
-    { id: "backups", label: "Backups", icon: <Archive size={14} /> },
-    { id: "settings", label: "Settings", icon: <Settings size={14} /> },
+    { id: "console", label: "Console", icon: <Terminal size={15} /> },
+    { id: "settings", label: "Properties", icon: <FileText size={15} /> },
+    { id: "files", label: "File Manager", icon: <FolderTree size={15} /> },
+    ...(playitEnabled ? [{ id: "tunnel", label: "Tunnel", icon: <Globe2 size={15} /> }] : []),
+    { id: "players", label: "Players", icon: <Users size={15} /> },
+    { id: "plugins", label: "Plugins", icon: <Puzzle size={15} /> },
+    { id: "backups", label: "Backups", icon: <Archive size={15} /> },
   ];
 
-  const cpu = stats?.cpu ?? 0;
-  const ramUsed = stats?.ram ?? 0;
-  const diskUsed = stats?.disk ?? 0;
-
   return (
-    <div className="space-y-5">
-      <PageHeader
-        icon={<Terminal size={20} />}
-        breadcrumb={[{ label: "Servers", to: "/servers" }, { label: server.name }]}
-        title={server.name}
-        subtitle={`${server.software} ${server.version} · port ${server.port} · node ${server.nodeId}`}
-        actions={
-          <>
-            <StatusPill status={server.status} />
-            {server.status === "online" ? (
-              <Button size="sm" icon={<Square size={13} />} loading={busy === "stop"} onClick={() => act("stop")}>
-                Stop
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="success"
-                icon={<Play size={13} />}
-                loading={busy === "start"}
-                onClick={() => act("start")}
-                disabled={server.status === "installing" || server.status === "suspended"}
-              >
-                Start
-              </Button>
-            )}
-            <Button size="sm" icon={<RotateCw size={13} />} loading={busy === "restart"} onClick={() => act("restart")} disabled={server.status !== "online"}>
-              Restart
-            </Button>
-            <Button size="sm" variant="danger" icon={<Power size={13} />} loading={busy === "kill"} onClick={() => act("kill")}>
-              Kill
-            </Button>
-            <Button size="sm" variant="subtle" icon={<Trash2 size={13} />} onClick={remove}>
-              Delete
-            </Button>
-          </>
-        }
-      />
+    <div className="space-y-4">
+      {/* ═══════════════════════════ top bar ═══════════════════════════ */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => navigate("/servers")}
+          className="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03] text-zinc-500 transition hover:border-white/20 hover:text-zinc-100"
+          title="Back to servers"
+        >
+          <ArrowLeft size={14} />
+        </button>
+        <span className="flex h-8 flex-none items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5">
+          <span className="flex h-4 w-4 items-center justify-center rounded bg-white/[0.09] font-mono text-[0.5rem] font-bold uppercase text-zinc-300">
+            {server.name.slice(0, 2)}
+          </span>
+          <span className="max-w-[150px] truncate text-[0.76rem] font-semibold text-zinc-100">{server.name}</span>
+        </span>
+        <span className="hidden h-8 flex-none items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 font-mono text-[0.62rem] text-zinc-500 sm:flex">
+          <Lock size={10} className="text-zinc-600" />
+          {server.software} {server.version}
+        </span>
+        <span className="flex h-8 flex-none items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 font-mono text-[0.62rem] text-zinc-400">
+          <Hash size={10} className="text-zinc-600" />
+          {server.port}
+        </span>
+        <span className="zk-badge zk-badge-online flex h-8 items-center gap-1.5 rounded-md px-2 !text-[0.6rem]">
+          <StateDot status={liveStatus} />
+          {liveStatus === "online" ? "Online" : liveStatus}
+        </span>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="!p-3.5">
-          <div className="flex items-center gap-2 text-[0.68rem] font-semibold uppercase tracking-wider text-zinc-500">
-            <Cpu size={13} className="text-brand-400" /> CPU usage
-          </div>
-          <p className="mt-1.5 font-display text-lg font-bold text-zinc-50">{cpu.toFixed(1)}%</p>
-          <Progress className="mt-2" value={Math.min(100, cpu)} />
-        </Card>
-        <Card className="!p-3.5">
-          <div className="flex items-center gap-2 text-[0.68rem] font-semibold uppercase tracking-wider text-zinc-500">
-            <MemoryStick size={13} className="text-brand-400" /> Memory
-          </div>
-          <p className="mt-1.5 font-display text-lg font-bold text-zinc-50">
-            {formatMb(ramUsed)} <span className="text-xs font-medium text-zinc-600">/ {formatMb(server.ram)}</span>
-          </p>
-          <Progress className="mt-2" value={pct(ramUsed, server.ram)} />
-        </Card>
-        <Card className="!p-3.5">
-          <div className="flex items-center gap-2 text-[0.68rem] font-semibold uppercase tracking-wider text-zinc-500">
-            <HardDrive size={13} className="text-brand-400" /> Disk
-          </div>
-          <p className="mt-1.5 font-display text-lg font-bold text-zinc-50">
-            {formatMb(diskUsed)} <span className="text-xs font-medium text-zinc-600">/ {formatMb(server.disk)}</span>
-          </p>
-          <Progress className="mt-2" value={pct(diskUsed, server.disk)} />
-        </Card>
-        <Card className="!p-3.5">
-          <div className="flex items-center gap-2 text-[0.68rem] font-semibold uppercase tracking-wider text-zinc-500">
-            <Activity size={13} className="text-brand-400" /> Uptime
-          </div>
-          <p className="mt-1.5 font-display text-lg font-bold text-zinc-50">{formatUptime(stats?.uptimeSeconds || 0)}</p>
-          <p className="mt-2 truncate font-mono text-[0.62rem] text-zinc-600">
-            PID {stats?.pid || "—"} · {server.ip === "0.0.0.0" ? "0.0.0.0" : server.ip}:{server.port}
-          </p>
-        </Card>
+        <div className="ml-auto flex items-center gap-1.5">
+          {isOnline ? (
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<Square size={12} className="fill-current" />}
+              loading={busy === "stop"}
+              onClick={() => act("stop")}
+            >
+              Stop
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="success"
+              icon={<Play size={12} className="fill-current" />}
+              loading={busy === "start"}
+              onClick={() => act("start")}
+              disabled={liveStatus === "installing" || liveStatus === "suspended"}
+            >
+              Start
+            </Button>
+          )}
+          <Button
+            size="sm"
+            icon={<RotateCw size={12} />}
+            loading={busy === "restart"}
+            onClick={() => act("restart")}
+            disabled={!isOnline}
+          >
+            Restart
+          </Button>
+          <Button size="sm" variant="subtle" icon={<Power size={12} />} loading={busy === "kill"} onClick={() => act("kill")}>
+            Kill
+          </Button>
+          <Button size="sm" variant="subtle" icon={<Trash2 size={12} />} onClick={remove}>
+            Delete
+          </Button>
+        </div>
       </div>
 
       {health && !health.java?.installed && server.status === "error" && (
@@ -886,16 +931,95 @@ export const ServerView: React.FC = () => {
         </div>
       )}
 
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
+      {/* ═══════════════════════════ workspace ═════════════════════════ */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,208px)_minmax(0,1fr)]">
+        {/* ---------------------------------------------------- server rail */}
+        <aside className="zk-card flex h-fit flex-col gap-3 p-2.5">
+          {/* status card */}
+          <div className="zk-inset rounded-lg px-2.5 py-2.5">
+            <div className="flex items-center gap-1.5">
+              <StateDot status={liveStatus} />
+              <span className="text-[0.72rem] font-semibold capitalize text-zinc-200">
+                {liveStatus === "online" ? "Online" : liveStatus}
+              </span>
+              <span className="text-zinc-700">·</span>
+              <span className="font-mono text-[0.66rem] text-zinc-500">{server.port}</span>
+              <span className="ml-auto font-mono text-[0.58rem] text-zinc-700">
+                {isOnline ? formatUptime(stats?.uptimeSeconds || 0) : "off"}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+              {isOnline ? (
+                <button
+                  type="button"
+                  onClick={() => act("stop")}
+                  disabled={busy === "stop"}
+                  className="flex items-center justify-center gap-1 rounded border border-rose-500/35 bg-rose-500/[0.1] py-1 text-[0.66rem] font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-40"
+                >
+                  {busy === "stop" ? <Loader2 size={10} className="zk-spin" /> : <Square size={9} className="fill-current" />}
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => act("start")}
+                  disabled={busy === "start"}
+                  className="flex items-center justify-center gap-1 rounded border border-emerald-500/35 bg-emerald-500/[0.1] py-1 text-[0.66rem] font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-40"
+                >
+                  {busy === "start" ? <Loader2 size={10} className="zk-spin" /> : <Play size={9} className="fill-current" />}
+                  Start
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => act("restart")}
+                disabled={!isOnline || busy === "restart"}
+                className="flex items-center justify-center gap-1 rounded border border-amber-500/35 bg-amber-500/[0.1] py-1 text-[0.66rem] font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-30"
+              >
+                {busy === "restart" ? <Loader2 size={10} className="zk-spin" /> : <RotateCw size={9} />}
+                Restart
+              </button>
+            </div>
+          </div>
 
-      <div className="zk-fade-up" key={tab}>
-        {tab === "console" && <ConsoleTab server={server} onStatus={setStatus} onRefresh={reload} />}
-        {tab === "files" && <FilesTab server={server} />}
-        {tab === "plugins" && <PluginsTab server={server} />}
-        {tab === "players" && <PlayersTab server={server} />}
-        {tab === "tunnel" && <PlayitTunnel serverId={server.id} enabled={playitEnabled} />}
-        {tab === "backups" && <BackupsTab server={server} />}
-        {tab === "settings" && <SettingsTab server={server} onSaved={reload} />}
+          <p className="zk-eyebrow px-1">Menu</p>
+          <div className="space-y-0.5">
+            {tabs.map((item) => (
+              <RailItem
+                key={item.id}
+                active={tab === item.id}
+                icon={item.icon}
+                label={item.label}
+                onClick={() => setTab(item.id)}
+              />
+            ))}
+          </div>
+
+          <div className="border-t border-white/[0.055] pt-2">
+            <p className="zk-eyebrow mb-1 px-1">Navigation</p>
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.78rem] font-medium text-zinc-500 transition hover:bg-white/[0.04] hover:text-zinc-200"
+            >
+              <span className="flex-none text-zinc-600 group-hover:text-zinc-400">
+                <LayoutGrid size={15} />
+              </span>
+              Back to Dashboard
+            </button>
+          </div>
+        </aside>
+
+        {/* ------------------------------------------------------ content */}
+        <div className="zk-fade-up min-w-0" key={tab}>
+          {tab === "console" && <ConsoleTab server={server} onStatus={setStatus} onRefresh={reload} />}
+          {tab === "files" && <FilesTab server={server} />}
+          {tab === "plugins" && <PluginsTab server={server} />}
+          {tab === "players" && <PlayersTab server={server} />}
+          {tab === "tunnel" && <PlayitTunnel serverId={server.id} enabled={playitEnabled} />}
+          {tab === "backups" && <BackupsTab server={server} />}
+          {tab === "settings" && <PropertiesAndSettings server={server} onSaved={reload} />}
+        </div>
       </div>
     </div>
   );

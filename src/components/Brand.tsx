@@ -8,7 +8,7 @@ export const BrandMark: React.FC<{ size?: number; className?: string }> = ({ siz
   return (
     <div
       className={clsx(
-        "relative flex flex-none items-center justify-center overflow-hidden rounded-lg border border-white/[0.09] bg-[#0a0a0c]",
+        "relative flex flex-none items-center justify-center overflow-hidden rounded-lg border border-white/[0.09] zk-surface",
         className
       )}
       style={{ width: size, height: size }}

@@ -654,3 +654,325 @@ body {
   border: 2px solid transparent;
   background-clip: content-box;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Appearance engine
+ * ---------------------------------------------------------------------------
+ * Themes & Fonts writes data attributes on <html>; every rule below reacts to
+ * them. The shipped look is `ui="frosted"`: a dimmed wallpaper behind
+ * translucent surfaces, one hairline each, no shadows unless the operator asks
+ * for them. Solid themes fall back to the ink palette with no blur.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ui-radius: 12px;
+  --ui-speed: 0.22s;
+  --sidebar-w: 248px;
+  --glass-blur: 18px;
+  --wallpaper-opacity: 1;
+  --brand-2: #ffb020;
+  --brand-grad: linear-gradient(135deg, #ff7a18, #ffb020);
+}
+
+/* Wallpaper layer --------------------------------------------------------- */
+.zk-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background: #000;
+  transition: opacity var(--ui-speed) ease;
+}
+.zk-wallpaper img,
+.zk-wallpaper video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: var(--wallpaper-opacity);
+  transition: opacity var(--ui-speed) ease;
+}
+.zk-wallpaper::after {
+  /* Scrim keeps text contrast on bright wallpapers without washing it out. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.72) 70%, rgba(0, 0, 0, 0.85));
+  pointer-events: none;
+}
+html[data-ui="solid"] .zk-wallpaper,
+html[data-ui="minimal"] .zk-wallpaper,
+html[data-ui="terminal"] .zk-wallpaper {
+  opacity: 0;
+}
+
+/* The canvas becomes translucent so the wallpaper shows through. */
+html:not([data-ui="solid"]):not([data-ui="minimal"]):not([data-ui="terminal"]) .zk-app-bg {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+/* Glass surfaces ---------------------------------------------------------- */
+.zk-glass {
+  background: rgba(14, 14, 17, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  transition: background var(--ui-speed) ease, border-color var(--ui-speed) ease,
+    backdrop-filter var(--ui-speed) ease;
+}
+.zk-glass-strong {
+  background: rgba(10, 10, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.2)) saturate(150%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.2)) saturate(150%);
+}
+.zk-glass-soft {
+  background: rgba(16, 16, 20, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(130%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(130%);
+}
+
+/* Card style -------------------------------------------------------------- */
+.zk-card {
+  border-radius: var(--ui-radius);
+  transition: background var(--ui-speed) ease, border-color var(--ui-speed) ease;
+}
+html[data-card="glass"] .zk-card {
+  background: rgba(14, 14, 17, 0.6);
+  border-color: rgba(255, 255, 255, 0.085);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+}
+html[data-card="glass"] .zk-card-hover:hover {
+  background: rgba(22, 22, 27, 0.72);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+html[data-card="bordered"] .zk-card {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+html[data-card="flat"] .zk-card {
+  background: rgba(255, 255, 255, 0.028);
+  border-color: transparent;
+}
+html[data-card="elevated"] .zk-card {
+  background: rgba(20, 20, 24, 0.82);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 18px 44px -22px rgba(0, 0, 0, 0.9), 0 2px 8px -4px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+html[data-card="neon"] .zk-card {
+  background: rgba(12, 12, 15, 0.66);
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 0 1px var(--brand-soft), 0 0 26px -14px var(--brand-glow);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+html[data-card="solid"] .zk-card {
+  background: var(--surface);
+}
+
+/* Border glow variants — applied to cards, tables and stat tiles. */
+html[data-glow="subtle"] .zk-card,
+html[data-glow="subtle"] .zk-stat,
+html[data-glow="subtle"] .zk-console-shell {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 22px -18px var(--brand-glow);
+}
+html[data-glow="medium"] .zk-card,
+html[data-glow="medium"] .zk-stat,
+html[data-glow="medium"] .zk-console-shell {
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 26px -16px var(--brand-glow);
+}
+html[data-glow="strong"] .zk-card,
+html[data-glow="strong"] .zk-stat,
+html[data-glow="strong"] .zk-console-shell {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 1px var(--brand-soft), 0 0 34px -10px var(--brand-glow);
+}
+@keyframes zk-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px var(--brand-soft), 0 0 22px -12px var(--brand-glow); }
+  50% { box-shadow: 0 0 0 1px var(--brand-glow), 0 0 40px -8px var(--brand-glow); }
+}
+html[data-glow="pulse"] .zk-card,
+html[data-glow="pulse"] .zk-stat {
+  border-color: var(--brand-soft);
+  animation: zk-glow-pulse 3.2s ease-in-out infinite;
+}
+
+/* Sidebar ----------------------------------------------------------------- */
+html[data-sidebar="glass"] .zk-sidebar {
+  background: rgba(8, 8, 10, 0.68);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-sidebar="gradient"] .zk-sidebar {
+  background: linear-gradient(180deg, rgba(20, 20, 26, 0.86), rgba(6, 6, 8, 0.94) 55%, rgba(24, 12, 4, 0.9));
+  border-color: rgba(255, 255, 255, 0.07);
+}
+html[data-sidebar="solid"] .zk-sidebar {
+  background: #050506;
+}
+
+/* Top bar ----------------------------------------------------------------- */
+html[data-topbar="glass"] .zk-topbar {
+  background: rgba(8, 8, 10, 0.58);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(140%);
+}
+html[data-topbar="blur"] .zk-topbar {
+  background: rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  backdrop-filter: blur(26px) saturate(160%);
+}
+html[data-topbar="dark"] .zk-topbar {
+  background: #050506;
+}
+html[data-topbar="accent"] .zk-topbar {
+  background: linear-gradient(90deg, rgba(8, 8, 10, 0.9), var(--brand-soft));
+  border-color: var(--brand-soft);
+}
+html[data-topbar="transparent"] .zk-topbar {
+  background: transparent;
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-topbar="solid"] .zk-topbar {
+  background: #000;
+}
+
+/* Console chrome --------------------------------------------------------- */
+.zk-console-shell {
+  background: rgba(6, 6, 8, 0.72);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(130%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.1)) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ui-radius);
+}
+html[data-ui="solid"] .zk-console-shell,
+html[data-card="solid"] .zk-console-shell {
+  background: #08080a;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Micro-surfaces inside cards (rows, tiles, inputs) follow the theme too. */
+html:not([data-card="solid"]) .zk-inset {
+  background: rgba(0, 0, 0, 0.32);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Motion & animation speed ----------------------------------------------- */
+html[data-anim-speed="slow"] * { animation-duration: 1.6s; }
+html[data-anim-speed="fast"] * { animation-duration: 0.6s; }
+html[data-anim-speed="instant"] *,
+html[data-anim-speed="instant"] *::before,
+html[data-anim-speed="instant"] *::after {
+  animation-duration: 0.001s !important;
+  transition-duration: 0.001s !important;
+}
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation: none !important;
+  transition-duration: 0.001s !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-anim-speed="instant"] * { animation: none !important; }
+}
+
+/* Accent-aware primitives ------------------------------------------------ */
+.zk-accent-grad {
+  background: var(--brand-grad);
+}
+.zk-accent-text {
+  color: var(--brand);
+}
+.zk-accent-line {
+  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+}
+
+/* Layout offsets follow the operator-chosen sidebar width. */
+.zk-sidebar {
+  width: var(--sidebar-w) !important;
+}
+@media (min-width: 1024px) {
+  .zk-sidebar-offset {
+    padding-left: var(--sidebar-w);
+  }
+}
+
+/* Range + colour inputs -------------------------------------------------- */
+.zk-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  outline: none;
+  cursor: pointer;
+}
+.zk-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--brand);
+  border: 2px solid #0a0a0c;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transition: transform var(--ui-speed) ease;
+}
+.zk-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.zk-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--brand);
+  border: 2px solid #0a0a0c;
+}
+.zk-color {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: transparent;
+  padding: 2px;
+}
+.zk-color::-webkit-color-swatch-wrapper { padding: 0; }
+.zk-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+
+/* Panels that used to be hard-coded ink -----------------------------------
+ * These are the same surfaces as `.zk-card` but were written as bespoke
+ * utilities. In a glass theme they have to be translucent too, or they punch
+ * opaque holes in the wallpaper. */
+.zk-surface {
+  background: var(--surface);
+  border-color: var(--line);
+}
+html:not([data-card="solid"]) .zk-surface {
+  background: rgba(12, 12, 15, 0.62);
+  border-color: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(135%);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(135%);
+}
+html[data-card="bordered"] .zk-surface {
+  background: transparent;
+}
+html[data-card="neon"] .zk-surface {
+  border-color: var(--brand-soft);
+}
+
+/* The top bar carries two classes on purpose: `.zk-topbar` selects the theme
+ * variant, `.zk-topbar-ink` supplies the fallback colour underneath it. */
+.zk-topbar-ink {
+  background: rgba(0, 0, 0, 0.82);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}

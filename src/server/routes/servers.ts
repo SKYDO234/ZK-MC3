@@ -167,6 +167,35 @@ const PLAYER_FILES: Record<string, string> = {
   bannedIps: "banned-ips.json",
 };
 
+/**
+ * Reads the live player list out of the server's own log.
+ * ---------------------------------------------------------------------------
+ * Vanilla/Paper announce joins and leaves as "[Server thread/INFO]: <name>
+ * joined the game". Recent log lines are replayed in order so the roster is a
+ * real count of who is in the world right now — no RCON, no extra ports.
+ */
+const PLAYER_JOIN = /]:\s*([A-Za-z0-9_]{1,16}) joined the game/;
+const PLAYER_LEAVE = /]:\s*([A-Za-z0-9_]{1,16}) (?:left the game|lost connection)/;
+
+export const listOnlinePlayers = async (serverId: string) => {
+  const online = new Set<string>();
+  try {
+    const raw = await readConsole(serverId, 4000);
+    for (const line of raw.split(/\r?\n/)) {
+      const join = PLAYER_JOIN.exec(line);
+      if (join) {
+        online.add(join[1]);
+        continue;
+      }
+      const leave = PLAYER_LEAVE.exec(line);
+      if (leave) online.delete(leave[1]);
+    }
+  } catch {
+    /* empty roster */
+  }
+  return [...online];
+};
+
 router.get("/:id/players", requireScope("servers.read"), async (req: any, res) => {
   const server = await guardServer(req, res);
   if (!server) return;
@@ -186,8 +215,10 @@ router.get("/:id/players", requireScope("servers.read"), async (req: any, res) =
     read(PLAYER_FILES.banned),
     read(PLAYER_FILES.bannedIps),
   ]);
+  const onlinePlayers = await listOnlinePlayers(server.id);
   res.json({
-    online: false,
+    online: onlinePlayers.length > 0,
+    onlinePlayers,
     whitelistEnabled: await (async () => {
       try {
         const props = await fs.readFile(path.join(dir, "server.properties"), "utf8");

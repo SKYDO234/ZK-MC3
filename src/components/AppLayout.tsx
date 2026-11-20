@@ -4,6 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
+import { WallpaperLayer } from "./WallpaperLayer";
 
 export const AppLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -17,12 +18,15 @@ export const AppLayout: React.FC = () => {
     navigate("/login");
   };
 
+  const { wallpaper, wallpaperType, wallpaperPreset } = settings;
+
   return (
-    <div className="relative min-h-screen bg-black">
+    <div className="relative min-h-screen">
       <div className="zk-app-bg" />
+      <WallpaperLayer url={wallpaper} type={wallpaperType} preset={wallpaperPreset} />
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} onLogout={handleLogout} />
 
-      <div className="lg:pl-[248px]">
+      <div className="zk-sidebar-offset">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
         {settings.maintenanceMode && isAdmin && (
           <div className="border-b border-amber-500/20 bg-amber-500/[0.07] px-4 py-1.5 text-center text-[0.68rem] font-medium text-amber-300">

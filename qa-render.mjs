@@ -18,7 +18,7 @@ const TOKEN = process.env.QA_TOKEN || "";
 const WIDTH = Number(process.env.QA_WIDTH || 1440);
 const ROUTES = (process.env.QA_ROUTES ||
   "/login,/register,/forgot-password,/dashboard,/servers,/api-keys,/account,/notifications," +
-  "/admin,/admin/create-server,/admin/servers,/admin/nodes,/admin/users,/admin/api-keys,/admin/settings"
+  "/admin,/admin/create-server,/admin/servers,/admin/nodes,/admin/users,/admin/api-keys,/admin/settings,/admin/themes"
 ).split(",");
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);

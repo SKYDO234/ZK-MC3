@@ -114,7 +114,7 @@ export const NotificationsPage: React.FC = () => {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#0a0a0c]">
+        <div className="overflow-hidden rounded-xl border border-white/[0.07] zk-surface">
           {visible.map((n) => (
             <div
               key={n.id}

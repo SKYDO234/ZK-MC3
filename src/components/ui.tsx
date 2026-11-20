@@ -200,7 +200,7 @@ export const EmptyState: React.FC<{
   message?: string;
   action?: React.ReactNode;
 }> = ({ icon, title, message, action }) => (
-  <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-[#0a0a0c] px-6 py-16 text-center">
+  <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.07] zk-surface px-6 py-16 text-center">
     <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.02] text-zinc-500">
       {icon}
     </div>
@@ -237,7 +237,7 @@ export const Modal: React.FC<{
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/80 p-4 sm:items-center">
-      <div className={clsx("zk-fade-up my-8 w-full rounded-xl border border-white/[0.09] bg-[#0a0a0c]", width)}>
+      <div className={clsx("zk-fade-up my-8 w-full rounded-xl border border-white/[0.09] zk-surface", width)}>
         <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] p-4">
           <div className="flex items-start gap-3">
             {icon && (
@@ -288,7 +288,7 @@ export const Tabs: React.FC<{
   onChange: (id: string) => void;
   className?: string;
 }> = ({ tabs, active, onChange, className }) => (
-  <div className={clsx("no-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-white/[0.07] bg-[#08080a] p-1", className)}>
+  <div className={clsx("no-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-white/[0.07] zk-surface p-1", className)}>
     {tabs.map((tab) => (
       <button
         key={tab.id}
