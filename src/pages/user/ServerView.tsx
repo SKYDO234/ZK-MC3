@@ -719,17 +719,19 @@ const RailItem: React.FC<{
     type="button"
     onClick={onClick}
     className={
-      "group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.78rem] transition " +
-      (active
-        ? "bg-white/[0.09] font-semibold text-zinc-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
-        : "font-medium text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200")
+      "group relative flex w-full items-center gap-2.5 rounded-md py-1.5 pl-3 pr-2.5 text-left text-[0.78rem] transition " +
+      (active ? "bg-white/[0.05] font-semibold text-zinc-50" : "font-medium text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200")
     }
   >
+    {/* The accent rule is the only marker of the current section — the panel
+        uses the same left-rule idiom for stat cards and the terminal. */}
     <span
       className={
-        "flex-none transition " + (active ? "text-brand-400" : "text-zinc-600 group-hover:text-zinc-400")
+        "absolute inset-y-1.5 left-0 w-[2px] rounded-full transition-opacity " +
+        (active ? "bg-brand-500 opacity-100" : "opacity-0")
       }
-    >
+    />
+    <span className={"flex-none transition " + (active ? "text-brand-400" : "text-zinc-600 group-hover:text-zinc-400")}>
       {icon}
     </span>
     <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -952,17 +954,15 @@ export const ServerView: React.FC = () => {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,208px)_minmax(0,1fr)]">
         {/* ---------------------------------------------------- server rail */}
         <aside className="zk-card hidden h-fit flex-col gap-3 p-2.5 lg:flex">
-          {/* status card */}
-          <div className="zk-inset rounded-lg px-2.5 py-2.5">
+          {/* power strip: state, then the two actions that matter */}
+          <div className="zk-inset rounded-lg p-2.5">
             <div className="flex items-center gap-1.5">
               <StateDot status={liveStatus} />
               <span className="text-[0.72rem] font-semibold capitalize text-zinc-200">
                 {liveStatus === "online" ? "Online" : liveStatus}
               </span>
-              <span className="text-zinc-700">·</span>
-              <span className="font-mono text-[0.66rem] text-zinc-500">{server.port}</span>
               <span className="ml-auto font-mono text-[0.58rem] text-zinc-700">
-                {isOnline ? formatUptime(stats?.uptimeSeconds || 0) : "off"}
+                {isOnline ? formatUptime(stats?.uptimeSeconds || 0) : "stopped"}
               </span>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -971,7 +971,7 @@ export const ServerView: React.FC = () => {
                   type="button"
                   onClick={() => act("stop")}
                   disabled={busy === "stop"}
-                  className="flex items-center justify-center gap-1 rounded border border-rose-500/35 bg-rose-500/[0.1] py-1 text-[0.66rem] font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-40"
+                  className="flex items-center justify-center gap-1 rounded border border-rose-500/30 bg-rose-500/[0.08] py-1 text-[0.66rem] font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-40"
                 >
                   {busy === "stop" ? <Loader2 size={10} className="zk-spin" /> : <Square size={9} className="fill-current" />}
                   Stop
@@ -981,7 +981,7 @@ export const ServerView: React.FC = () => {
                   type="button"
                   onClick={() => act("start")}
                   disabled={busy === "start"}
-                  className="flex items-center justify-center gap-1 rounded border border-emerald-500/35 bg-emerald-500/[0.1] py-1 text-[0.66rem] font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-40"
+                  className="flex items-center justify-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/[0.08] py-1 text-[0.66rem] font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-40"
                 >
                   {busy === "start" ? <Loader2 size={10} className="zk-spin" /> : <Play size={9} className="fill-current" />}
                   Start
@@ -991,7 +991,7 @@ export const ServerView: React.FC = () => {
                 type="button"
                 onClick={() => act("restart")}
                 disabled={!isOnline || busy === "restart"}
-                className="flex items-center justify-center gap-1 rounded border border-amber-500/35 bg-amber-500/[0.1] py-1 text-[0.66rem] font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-30"
+                className="flex items-center justify-center gap-1 rounded border border-white/[0.09] bg-white/[0.03] py-1 text-[0.66rem] font-semibold text-zinc-300 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-white disabled:opacity-30"
               >
                 {busy === "restart" ? <Loader2 size={10} className="zk-spin" /> : <RotateCw size={9} />}
                 Restart
@@ -999,7 +999,7 @@ export const ServerView: React.FC = () => {
             </div>
           </div>
 
-          <p className="zk-eyebrow px-1">Menu</p>
+          <p className="zk-eyebrow px-1">Manage</p>
           <div className="space-y-0.5">
             {tabs.map((item) => (
               <RailItem
@@ -1013,7 +1013,7 @@ export const ServerView: React.FC = () => {
           </div>
 
           <div className="border-t border-white/[0.055] pt-2">
-            <p className="zk-eyebrow mb-1 px-1">Navigation</p>
+            <p className="zk-eyebrow mb-1 px-1">Exit</p>
             <button
               type="button"
               onClick={() => navigate("/dashboard")}

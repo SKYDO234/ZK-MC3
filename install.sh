@@ -429,7 +429,7 @@ do_agent() {
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete "$PM2_AGENT" >/dev/null 2>&1 || true
     PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
-      pm2 start agent/agent.js --name "$PM2_AGENT" --update-env >/dev/null 2>&1
+      pm2 start agent/agent.cjs --name "$PM2_AGENT" --update-env >/dev/null 2>&1
     pm2 save >/dev/null 2>&1 || true
     sleep 2
     if port_is_listening "$AGENT_PORT"; then
@@ -438,7 +438,7 @@ do_agent() {
       warn "Agent is not listening on ${AGENT_PORT} — check 'pm2 logs ${PM2_AGENT}'"
     fi
   else
-    (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" node agent/agent.js > logs/agent.log 2>&1 < /dev/null &)
+    (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" node agent/agent.cjs > logs/agent.log 2>&1 < /dev/null &)
     sleep 2
     if port_is_listening "$AGENT_PORT"; then
       ok "Agent started on port ${AGENT_PORT}"

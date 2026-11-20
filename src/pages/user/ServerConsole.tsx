@@ -16,9 +16,10 @@ import {
   ScrollText,
   Radio,
   Users,
-  CircleSlash,
   Clock,
   Loader2,
+  ChevronRight,
+  Zap,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { api } from "../../lib/api";
@@ -29,16 +30,19 @@ import { formatUptime } from "../../lib/format";
 /**
  * Server console — the control deck.
  * ---------------------------------------------------------------------------
- * Three columns, one instrument panel:
+ * Layout borrowed from the brief, visual language entirely ZK-MC3's own:
  *
- *   ┌──────────────┬────────────────────┬──────────────────────────────┐
- *   │  TELEMETRY   │  PLAYERS           │  SYSTEM CONSOLE              │
- *   │  gauges      │  live roster       │  stream + quick commands     │
- *   └──────────────┴────────────────────┴──────────────────────────────┘
+ *   ┌───────────────┬─────────────────────────────────────────────────┐
+ *   │  LIVE READOUT │  OUTPUT                                          │
+ *   │  three meters │  log stream, command line docked underneath      │
+ *   │  + roster     │                                                  │
+ *   └───────────────┴─────────────────────────────────────────────────┘
  *
- * The rail (server tile, status, menu) is drawn by ServerView so the same
- * navigation stays visible on every tab. Everything here reads real process
- * numbers — nothing is faked.
+ * Deliberately not a skeuomorphic terminal window: no traffic lights, no
+ * decorative window chrome, no fake shell prompt. The header is a thin
+ * instrument strip (state, stream, clock, tools) matching the rest of the
+ * panel, values are monospaced, and the only colour is the accent on the
+ * state dot and the send action.
  */
 
 const ANSI = /\x1B\[[0-9;?]*[ -/]*[@-~]/g;
@@ -120,41 +124,11 @@ interface StatsPayload {
 
 /* ------------------------------------------------------------- primitives */
 
-/** Circular gauge: one arc, the value in the middle, no decoration. */
-const Gauge: React.FC<{ value: number; tone?: string; size?: number }> = ({
-  value,
-  tone = "#fafafa",
-  size = 44,
-}) => {
-  const clamped = Math.max(0, Math.min(100, value || 0));
-  const stroke = 3;
-  const r = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * r;
-  return (
-    <div className="relative flex-none" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={tone}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference - (clamped / 100) * circumference}
-          className="transition-[stroke-dashoffset] duration-700"
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center font-mono text-[0.56rem] font-semibold text-zinc-400">
-        {Math.round(clamped)}%
-      </span>
-    </div>
-  );
-};
-
-/** A telemetry tile: gauge, label + big value + limit, and a sparkline. */
+/**
+ * A telemetry row: label, a large monospaced value with its ceiling, a ruler of
+ * 32 ticks and a sparkline. The tick ruler is the panel's own idiom — it reads
+ * as an instrument scale rather than a copy of another panel's dial.
+ */
 const TelemetryTile: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -175,41 +149,59 @@ const TelemetryTile: React.FC<{
     return rows;
   }, [data, dataKey]);
 
+  const lit = Math.round((Math.max(0, Math.min(100, percent)) / 100) * 32);
+
   return (
-    <div className="flex items-center gap-3 border-b border-white/[0.05] px-3.5 py-3 last:border-b-0">
-      <Gauge value={percent} tone={tone} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 text-[0.58rem] font-bold uppercase tracking-[0.14em] text-zinc-600">
+    <div className="border-b border-white/[0.05] px-3.5 py-3 last:border-b-0">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[0.56rem] font-bold uppercase tracking-[0.14em] text-zinc-600">
           <span className="text-zinc-700">{icon}</span>
           {label}
-        </p>
-        <p className="mt-0.5 truncate font-mono text-[1.02rem] font-semibold leading-tight text-zinc-100">
-          {value}
-          {unit && <span className="ml-0.5 text-[0.62rem] font-medium text-zinc-500">{unit}</span>}
-        </p>
-        {limit && <p className="truncate font-mono text-[0.56rem] text-zinc-700">{limit}</p>}
+        </span>
+        {limit && <span className="truncate font-mono text-[0.55rem] text-zinc-700">{limit}</span>}
       </div>
-      <div className="h-9 w-[74px] flex-none">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={padded} margin={{ top: 2, left: 0, right: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id={`tile-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={tone} stopOpacity={0.35} />
-                <stop offset="100%" stopColor={tone} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <YAxis domain={[0, max || "auto"]} hide />
-            <Area
-              type="monotone"
-              dataKey={dataKey}
-              stroke={tone}
-              strokeWidth={1.4}
-              fill={`url(#tile-${dataKey})`}
-              isAnimationActive={false}
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+
+      <div className="mt-1 flex items-end justify-between gap-2">
+        <p className="truncate font-mono text-[1.28rem] font-semibold leading-none text-zinc-50">
+          {value}
+          {unit && <span className="ml-0.5 text-[0.66rem] font-medium text-zinc-500">{unit}</span>}
+        </p>
+        <div className="h-7 w-[92px] flex-none opacity-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={padded} margin={{ top: 2, left: 0, right: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`tile-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={tone} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={tone} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <YAxis domain={[0, max || "auto"]} hide />
+              <Area
+                type="monotone"
+                dataKey={dataKey}
+                stroke={tone}
+                strokeWidth={1.3}
+                fill={`url(#tile-${dataKey})`}
+                isAnimationActive={false}
+                dot={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 32-tick ruler: filled ticks show the ratio at a glance */}
+      <div className="mt-2 flex h-[9px] items-end gap-[2px]" aria-hidden>
+        {Array.from({ length: 32 }).map((_, i) => (
+          <span
+            key={i}
+            className="flex-1 rounded-[1px] transition-colors duration-500"
+            style={{
+              height: i % 8 === 0 ? "100%" : i % 4 === 0 ? "70%" : "48%",
+              background: i < lit ? tone : "rgba(255,255,255,0.07)",
+            }}
+          />
+        ))}
       </div>
     </div>
   );
@@ -459,7 +451,7 @@ export const ServerConsole: React.FC<{
           <div className="flex items-center justify-between gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
             <span className="flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400">
               <Activity size={11} className="text-brand-500" />
-              Telemetry
+              Live readout
             </span>
             <span className="font-mono text-[0.56rem] text-zinc-700">
               {isOnline ? formatUptime(uptimeSeconds) : "offline"}
@@ -470,7 +462,7 @@ export const ServerConsole: React.FC<{
             label="CPU load"
             value={isOnline ? (stats?.cpu ?? 0).toFixed(1) : "0.0"}
             unit="%"
-            limit={`of ${(cpuLimit * 100).toFixed(0)}% allocated`}
+            limit={`cap ${(cpuLimit * 100).toFixed(0)}%`}
             percent={isOnline ? cpuPct : 0}
             tone="#ff7a18"
             data={cpuHist}
@@ -507,7 +499,7 @@ export const ServerConsole: React.FC<{
           <div className="flex items-center justify-between gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
             <span className="flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400">
               <Users size={11} className="text-brand-500" />
-              Players
+              Roster
             </span>
             <span
               className={
@@ -522,16 +514,11 @@ export const ServerConsole: React.FC<{
           </div>
 
           {players.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-              <div className="relative">
-                <Users size={30} className="text-zinc-800" strokeWidth={1.5} />
-                <CircleSlash size={14} className="absolute -bottom-1 -right-1 text-zinc-700" />
-              </div>
-              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-700">
-                No players online
-              </p>
-              <p className="max-w-[220px] text-[0.62rem] leading-relaxed text-zinc-800">
-                {isOnline ? "The roster updates within ten seconds of a join." : "Start the server to populate the roster."}
+            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-4 py-8 text-center">
+              <Users size={20} className="text-zinc-800" strokeWidth={1.6} />
+              <p className="text-[0.72rem] font-medium text-zinc-500">Nobody connected</p>
+              <p className="max-w-[210px] text-[0.62rem] leading-relaxed text-zinc-700">
+                {isOnline ? "The list refreshes within ten seconds of a join." : "Start the server to populate the roster."}
               </p>
             </div>
           ) : (
@@ -549,34 +536,35 @@ export const ServerConsole: React.FC<{
           )}
 
           <div className="flex items-center justify-between border-t border-white/[0.05] px-3.5 py-2 font-mono text-[0.56rem] text-zinc-700">
-            <span>net ↓{formatRate(stats?.netInRate ?? 0)}</span>
-            <span>↑{formatRate(stats?.netOutRate ?? 0)}</span>
+            <span className="flex items-center gap-1">
+              <Radio size={9} /> in {formatRate(stats?.netInRate ?? 0)}
+            </span>
+            <span>out {formatRate(stats?.netOutRate ?? 0)}</span>
           </div>
         </div>
       </div>
 
       {/* ══════════════════════════════ right: system console ════════════ */}
       <div className="zk-console-shell flex min-h-[420px] flex-col overflow-hidden sm:min-h-[520px] lg:col-start-2 lg:row-start-1 xl:min-h-[560px]">
-        {/* window chrome */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-3.5 py-2.5">
-          <span className="flex flex-none items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-          </span>
-
-          <span className="ml-2 flex min-w-0 items-center gap-1.5">
+        {/* instrument strip — same hairline language as the rest of the panel */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
+          <span className="flex flex-none items-center gap-2">
+            <span className="relative flex h-2 w-2 flex-none">
+              {isOnline && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />}
+              <span
+                className={
+                  "relative inline-flex h-2 w-2 rounded-full " +
+                  (isOnline ? "bg-emerald-400" : isTransitioning ? "bg-amber-400 animate-pulse" : "bg-zinc-600")
+                }
+              />
+            </span>
             <TerminalSquare size={12} className="flex-none text-zinc-500" />
-            <span className="truncate text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-300">
-              System console
-            </span>
+            <span className="text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-300">Output</span>
           </span>
 
-          <span className="hidden min-w-0 items-center gap-1.5 font-mono text-[0.56rem] text-zinc-700 md:flex">
-            <span className="text-zinc-800">stream</span>
-            <span className="truncate rounded border border-dashed border-white/[0.1] px-1.5 py-0.5 text-zinc-500">
-              {streamId}
-            </span>
+          <span className="rounded border border-white/[0.07] bg-white/[0.03] px-1.5 py-0.5 font-mono text-[0.55rem] text-zinc-500">
+            {visible.length}
+            {filter ? `/${lines.length}` : ""} lines
           </span>
 
           <div className="ml-auto flex items-center gap-2">
@@ -594,8 +582,7 @@ export const ServerConsole: React.FC<{
                   : "border-white/[0.08] bg-white/[0.03] text-zinc-500")
               }
             >
-              <Radio size={9} className={isOnline ? "text-emerald-400" : ""} />
-              {isOnline ? "Live" : isTransitioning ? "Busy" : "Idle"}
+              {isOnline ? "Live" : isTransitioning ? "Busy" : "Offline"}
             </span>
 
             <span className="mx-0.5 hidden h-4 w-px bg-white/[0.08] sm:block" />
@@ -643,7 +630,7 @@ export const ServerConsole: React.FC<{
               type="button"
               onClick={copyLogs}
               className="rounded p-1 text-zinc-600 transition hover:bg-white/5 hover:text-zinc-200"
-              title="Copy console"
+              title="Copy output"
             >
               {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
             </button>
@@ -659,7 +646,7 @@ export const ServerConsole: React.FC<{
               type="button"
               onClick={clearConsole}
               className="rounded p-1 text-zinc-600 transition hover:bg-red-500/10 hover:text-red-300"
-              title="Clear console"
+              title="Clear output"
             >
               <Trash2 size={12} />
             </button>
@@ -693,9 +680,21 @@ export const ServerConsole: React.FC<{
                 const mark = LINE_MARK[kind];
                 return (
                   <div key={`${index}-${line.slice(0, 12)}`} className={`group/mark flex min-w-0 items-start gap-2 ${LINE_TONE[kind]}`}>
-                    <span className="w-3 flex-none select-none text-center text-[0.62rem] leading-[1.9] text-zinc-800">
-                      {mark || ";"}
-                    </span>
+                    <span
+                      className={
+                        "mt-[0.42em] h-[1.2em] w-[2px] flex-none rounded-full " +
+                        (kind === "error"
+                          ? "bg-rose-500/70"
+                          : kind === "warn"
+                          ? "bg-amber-500/60"
+                          : kind === "system"
+                          ? "bg-sky-500/50"
+                          : kind === "success"
+                          ? "bg-emerald-500/50"
+                          : "bg-transparent")
+                      }
+                      title={mark ? kind : undefined}
+                    />
                     <span className="min-w-0 break-words">{stripAnsi(line)}</span>
                   </div>
                 );
@@ -717,7 +716,9 @@ export const ServerConsole: React.FC<{
 
         {/* quick commands */}
         <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.055] px-3.5 py-2">
-          <span className="mr-1 text-[0.54rem] font-bold uppercase tracking-[0.16em] text-zinc-700">Quick command</span>
+          <span className="mr-1 flex items-center gap-1 text-[0.54rem] font-bold uppercase tracking-[0.16em] text-zinc-700">
+            <Zap size={9} className="text-brand-500/70" /> Shortcuts
+          </span>
           {QUICK_COMMANDS.map((cmd) => (
             <button
               key={cmd}
@@ -744,9 +745,9 @@ export const ServerConsole: React.FC<{
           }}
           className="flex items-center gap-2 border-t border-white/[0.06] px-3.5 py-2.5"
         >
-          <span className="flex-none select-none font-mono text-[0.72rem] text-zinc-600">
-            <span className="text-brand-500">admin@node</span>
-            <span className="text-zinc-700">:~$</span>
+          <span className="flex flex-none select-none items-center gap-1.5 font-mono text-[0.64rem] uppercase tracking-[0.1em] text-zinc-600">
+            <ChevronRight size={11} className={isOnline ? "text-brand-500" : "text-zinc-700"} />
+            command
           </span>
           <input
             ref={inputRef}
@@ -754,7 +755,7 @@ export const ServerConsole: React.FC<{
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={onKeyDown}
             disabled={!isOnline}
-            placeholder={isOnline ? "type a command…" : "server is offline"}
+            placeholder={isOnline ? "send a Minecraft command…" : "start the server to run commands"}
             autoComplete="off"
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent font-mono text-[0.76rem] text-zinc-100 outline-none placeholder:text-zinc-700 disabled:cursor-not-allowed"
@@ -762,10 +763,10 @@ export const ServerConsole: React.FC<{
           <button
             type="submit"
             disabled={!isOnline || !command.trim() || sending}
-            className="flex flex-none items-center gap-1.5 rounded-md border border-white/[0.1] bg-white/[0.06] px-2.5 py-1.5 text-[0.6rem] font-bold uppercase tracking-[0.12em] text-zinc-200 transition hover:border-white/25 hover:bg-white/[0.12] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            className="flex flex-none items-center gap-1.5 rounded-md border border-white/[0.1] bg-white/[0.9] px-2.5 py-1.5 text-[0.62rem] font-bold uppercase tracking-[0.1em] text-[#0a0a0c] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-25"
           >
-            {sending ? <Loader2 size={11} className="zk-spin" /> : null}
-            Execute
+            {sending ? <Loader2 size={11} className="zk-spin" /> : <ChevronRight size={11} />}
+            Send
           </button>
         </form>
       </div>
