@@ -449,7 +449,12 @@ export const ServerConsole: React.FC<{
   return (
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
       {/* ══════════════════════════ left column: telemetry + players ═══════ */}
-      <div className="flex flex-col gap-3">
+      {/*
+        On a phone the console *is* the page: gauges and the roster are hidden
+        below `lg` rather than stacked, so the terminal, its quick commands and
+        the prompt fit on one screen. From `lg` the telemetry column returns.
+      */}
+      <div className="hidden flex-col gap-3 lg:flex xl:col-start-1 xl:row-start-1">
         <div className="zk-card overflow-hidden">
           <div className="flex items-center justify-between gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
             <span className="flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400">
@@ -498,7 +503,7 @@ export const ServerConsole: React.FC<{
           />
         </div>
 
-        <div className="zk-card flex min-h-[280px] flex-1 flex-col overflow-hidden">
+        <div className="zk-card flex min-h-[176px] flex-1 flex-col overflow-hidden sm:min-h-[240px]">
           <div className="flex items-center justify-between gap-2 border-b border-white/[0.055] px-3.5 py-2.5">
             <span className="flex items-center gap-1.5 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400">
               <Users size={11} className="text-brand-500" />
@@ -525,7 +530,7 @@ export const ServerConsole: React.FC<{
               <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-700">
                 No players online
               </p>
-              <p className="max-w-[190px] text-[0.62rem] leading-relaxed text-zinc-800">
+              <p className="max-w-[220px] text-[0.62rem] leading-relaxed text-zinc-800">
                 {isOnline ? "The roster updates within ten seconds of a join." : "Start the server to populate the roster."}
               </p>
             </div>
@@ -551,7 +556,7 @@ export const ServerConsole: React.FC<{
       </div>
 
       {/* ══════════════════════════════ right: system console ════════════ */}
-      <div className="zk-console-shell flex min-h-[560px] flex-col overflow-hidden">
+      <div className="zk-console-shell flex min-h-[420px] flex-col overflow-hidden sm:min-h-[520px] lg:col-start-2 lg:row-start-1 xl:min-h-[560px]">
         {/* window chrome */}
         <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-3.5 py-2.5">
           <span className="flex flex-none items-center gap-1.5">
@@ -672,7 +677,7 @@ export const ServerConsole: React.FC<{
               "zk-terminal h-full select-text overflow-y-auto overflow-x-hidden bg-transparent px-4 py-3.5 text-zinc-300 [overflow-wrap:anywhere] " +
               (compact ? "text-[11px] leading-[1.5]" : "text-[12px] leading-[1.75]")
             }
-            style={{ minHeight: 380 }}
+            style={{ minHeight: 300 }}
           >
             {visible.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-1.5 py-16 text-center">

@@ -876,7 +876,7 @@ export const ServerView: React.FC = () => {
           {liveStatus === "online" ? "Online" : liveStatus}
         </span>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex w-full items-center gap-1.5 sm:ml-auto sm:w-auto">
           {isOnline ? (
             <Button
               size="sm"
@@ -908,10 +908,18 @@ export const ServerView: React.FC = () => {
           >
             Restart
           </Button>
-          <Button size="sm" variant="subtle" icon={<Power size={12} />} loading={busy === "kill"} onClick={() => act("kill")}>
+          {/* Force-kill and delete are destructive and rare: desktop only. */}
+          <Button
+            size="sm"
+            variant="subtle"
+            className="hidden sm:inline-flex"
+            icon={<Power size={12} />}
+            loading={busy === "kill"}
+            onClick={() => act("kill")}
+          >
             Kill
           </Button>
-          <Button size="sm" variant="subtle" icon={<Trash2 size={12} />} onClick={remove}>
+          <Button size="sm" variant="subtle" className="hidden sm:inline-flex" icon={<Trash2 size={12} />} onClick={remove}>
             Delete
           </Button>
         </div>
@@ -932,9 +940,18 @@ export const ServerView: React.FC = () => {
       )}
 
       {/* ═══════════════════════════ workspace ═════════════════════════ */}
+      {/*
+        Two layouts, one source of truth. A phone cannot show a 208 px rail next
+        to a terminal, so below `lg` the rail collapses into a horizontal tab
+        strip and the console takes the full width.
+      */}
+      <div className="lg:hidden">
+        <Tabs tabs={tabs} active={tab} onChange={setTab} />
+      </div>
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,208px)_minmax(0,1fr)]">
         {/* ---------------------------------------------------- server rail */}
-        <aside className="zk-card flex h-fit flex-col gap-3 p-2.5">
+        <aside className="zk-card hidden h-fit flex-col gap-3 p-2.5 lg:flex">
           {/* status card */}
           <div className="zk-inset rounded-lg px-2.5 py-2.5">
             <div className="flex items-center gap-1.5">
