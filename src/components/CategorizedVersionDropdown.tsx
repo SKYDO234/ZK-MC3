@@ -47,17 +47,6 @@ const groupVersions = (versions: string[], software: string): VersionCategory[] 
       : [];
   }
 
-  // A Linux VM's "version" is the guest distribution. Falling through to the
-  // Minecraft buckets would group every distro under "Legacy".
-  if ((software || "").toUpperCase() === "VM") {
-    const ubuntu = versions.filter((v) => v.startsWith("ubuntu"));
-    const debian = versions.filter((v) => v.startsWith("debian"));
-    const groups: VersionCategory[] = [];
-    if (ubuntu.length) groups.push({ id: "ubuntu", label: `Ubuntu (${ubuntu.length})`, versions: ubuntu });
-    if (debian.length) groups.push({ id: "debian", label: `Debian (${debian.length})`, versions: debian });
-    return groups;
-  }
-
   // BungeeCord and Waterfall publish a rolling build instead of version numbers,
   // so "latest" is a real, selectable choice for them — not a placeholder to drop.
   const proxy = ["BUNGEECORD", "WATERFALL"].includes((software || "").toUpperCase());
