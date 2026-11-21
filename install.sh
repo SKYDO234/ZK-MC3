@@ -73,6 +73,19 @@ port_is_listening() {
   return 1
 }
 
+# Polls until a TCP port accepts a connection, or the timeout expires.
+# `port_is_listening` is a single sample; a panel that boots in 6 s would fail
+# it, so the startup check waits instead of guessing.
+wait_for_port() {
+  local port="$1" timeout="${2:-10}" waited=0
+  while [ "$waited" -lt "$timeout" ]; do
+    if port_is_listening "$port"; then return 0; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
   if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
@@ -297,9 +310,33 @@ install_deps() {
   ok "Build complete → dist/"
 }
 
+# Set by start_panel; read by summary so the banner cannot lie.
+PANEL_STARTED=0
+
 start_panel() {
   section "Starting the panel"
   cd "$INSTALL_DIR" || exit 1
+  mkdir -p logs 2>/dev/null || true
+
+  # dotenv decides the port at boot, so a missing .env silently binds 31120 and
+  # every later check against $PANEL_PORT fails with no explanation.
+  if [ ! -f .env ]; then
+    warn ".env is missing — writing a minimal one so the panel uses port ${PANEL_PORT}"
+    JWT_SECRET=$(openssl rand -hex 48 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -d '\n/+=' )
+    cat > .env <<ENVEOF
+NODE_ENV=production
+PORT=${PANEL_PORT}
+JWT_SECRET=${JWT_SECRET}
+ENVEOF
+  fi
+
+  # The panel is only "started" if the build actually produced a server.
+  if [ ! -s dist/server.cjs ]; then
+    fail "dist/server.cjs is missing — the build did not produce a server bundle."
+    info "Rebuild with:  cd ${INSTALL_DIR} && npm run build"
+    PANEL_STARTED=0
+    return 1
+  fi
 
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete "$PM2_APP" >/dev/null 2>&1 || true
@@ -329,14 +366,27 @@ start_panel() {
     pkill -f "dist/server.cjs" >/dev/null 2>&1 || true
     (setsid nohup node dist/server.cjs > logs/panel.log 2>&1 < /dev/null &)
     sleep 3
-    ok "Panel started — logs at ${INSTALL_DIR}/logs/panel.log"
+    if port_is_listening "$PANEL_PORT"; then
+      ok "Panel started — logs at ${INSTALL_DIR}/logs/panel.log"
+    else
+      fail "Panel did not start — see ${INSTALL_DIR}/logs/panel.log"
+    fi
   fi
 
-  if port_is_listening "$PANEL_PORT"; then
+  # One place decides whether the panel is up. Every branch above is only a
+  # hint; this is the check the banner and the exit status both use.
+  if wait_for_port "$PANEL_PORT" 15; then
+    PANEL_STARTED=1
     ok "Listening on port ${PANEL_PORT}"
   else
-    warn "Port ${PANEL_PORT} is not listening yet — give it a few seconds."
+    PANEL_STARTED=0
+    fail "Nothing is listening on port ${PANEL_PORT}."
+    if [ -f logs/panel.log ]; then
+      info "Last lines of ${INSTALL_DIR}/logs/panel.log:"
+      tail -12 logs/panel.log 2>/dev/null | sed 's/^/      /'
+    fi
   fi
+  return 0
 }
 
 firewall_hint() {
@@ -369,9 +419,20 @@ summary() {
   local ip
   ip=$(detect_ip)
   say ""
-  say "${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
-  say "${ORANGE}║${NC}  ${WHITE}${PANEL_NAME}${NC} is ready ${GREEN}●${NC}                                    ${ORANGE}║${NC}"
-  say "${ORANGE}╚══════════════════════════════════════════════════════════════╝${NC}"
+  if [ "${PANEL_STARTED:-0}" = "1" ]; then
+    say "${ORANGE}╔══════════════════════════════════════════════════════════════╗${NC}"
+    say "${ORANGE}║${NC}  ${WHITE}${PANEL_NAME}${NC} is ready ${GREEN}●${NC}                                    ${ORANGE}║${NC}"
+    say "${ORANGE}╚══════════════════════════════════════════════════════════════╝${NC}"
+  else
+    say "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+    say "${RED}║${NC}  ${WHITE}${PANEL_NAME}${NC} ${RED}is installed but not running${NC}               ${RED}║${NC}"
+    say "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+    say "   ${AMBER}!${NC} The panel did not answer on port ${PANEL_PORT}."
+    say "   ${GRAY}Try:${NC}   cd ${INSTALL_DIR} && npm run build && npm start"
+    say "   ${GRAY}Logs:${NC}  ${INSTALL_DIR}/logs/panel.log"
+    say ""
+    return 1
+  fi
   say "   ${GRAY}Panel URL${NC}      ${WHITE}http://${ip}:${PANEL_PORT}${NC}"
   say "   ${GRAY}Health check${NC}   ${DIM}http://${ip}:${PANEL_PORT}/api/health${NC}"
   say "   ${GRAY}Install dir${NC}    ${INSTALL_DIR}"
@@ -396,7 +457,7 @@ do_install() {
   install_deps
   start_panel
   firewall_hint
-  summary
+  summary || exit 1
 }
 
 do_update() {
@@ -409,7 +470,12 @@ do_update() {
   run_root git reset --hard "origin/${BRANCH}" -q 2>/dev/null || warn "Git pull skipped"
   install_deps
   start_panel
-  ok "Update complete — your data in .data/ was preserved."
+  if [ "${PANEL_STARTED:-0}" = "1" ]; then
+    ok "Update complete — your data in .data/ was preserved."
+  else
+    fail "Update finished, but the panel is not running. See logs/panel.log."
+    exit 1
+  fi
 }
 
 do_createuser() {

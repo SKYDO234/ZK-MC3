@@ -89,7 +89,7 @@ const main = async () => {
     `#!/usr/bin/env bash
 # ZK-MC3-PANEL · node daemon installer
 #
-#   sudo bash install.sh <token> [panel-url]
+#   sudo bash install.sh <token> <panel-url>
 #
 # Runs the daemon as a systemd service so it survives a reboot and reconnects
 # by itself. Everything it needs is already in this folder.
@@ -101,8 +101,11 @@ PANEL="\${2:-}"
 PORT=""  # unused; the daemon dials out, so it listens on nothing
 
 if [ -z "$TOKEN" ]; then
-  echo "Usage: sudo bash install.sh <token> [panel-url]" >&2
-  echo "Copy the token from the panel: Admin → Nodes → Add node." >&2
+  echo "Usage: sudo bash install.sh <token> <panel-url>" >&2
+  echo "" >&2
+  echo "  <token>      Copy it from the panel: Admin → Nodes → Add node." >&2
+  echo "  <panel-url>  e.g. https://panel.example.com or http://203.0.113.5:31120" >&2
+  echo "               Must be reachable FROM this machine (not 127.0.0.1)." >&2
   exit 1
 fi
 
