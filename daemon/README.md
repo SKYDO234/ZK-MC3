@@ -110,6 +110,38 @@ sudo bash install.sh <new-token> <panel-url>
 
 ---
 
+## Running the panel in a GitHub Codespace
+
+A Codespace only forwards a port to the internet when that port is **public**.
+Private ports refuse or redirect external connections, which is what the daemon
+reports as:
+
+```
+✖ Cannot reach the panel.
+  The connection was reset before the panel answered (ECONNRESET).
+     On a Codespace this almost always means the port is PRIVATE.
+     Fix: Ports tab → port 31120 → right-click → Port Visibility → Public.
+```
+
+To fix it:
+
+1. In the Codespace, open the **Ports** tab (next to Terminal).
+2. Find the row for the panel's port (`31120`).
+3. Right-click it → **Port Visibility** → **Public**.
+4. The URL it shows becomes `https://<codespace>-31120.app.github.dev` — use
+   **exactly** that as `<panel-url>`.
+
+Notes that save time:
+
+- Making the port public is required **even for a node on the same Codespace**,
+  because the daemon still goes out through the tunnel.
+- The URL changes if the Codespace is rebuilt; re-run the installer with the new
+  one.
+- A public port means anyone with the URL reaches the panel, so change the
+  default `admin` password immediately.
+- The daemon retries every 15 s, so you do **not** need to restart it after
+  fixing the visibility — watch for `The panel is reachable again — reconnecting…`.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -117,7 +149,10 @@ sudo bash install.sh <new-token> <panel-url>
 | `This daemon is not configured yet` | `config.json` is empty | Run with `--token` and `--panel`, or edit `config.json` |
 | `the panel rejected this token` | Token rotated, or copied wrong | Rotate in the panel and re-run the installer with the new token |
 | Panel shows the node offline, daemon says connected | Panel restarted and hasn't finished booting | Wait a few seconds; it reconnects by itself |
-| `Cannot reach the panel` | Wrong `panelUrl`, or the panel is down | Check the URL is reachable: `curl <panelUrl>/api/health` |
+| `ECONNRESET` / `connection was reset` | On a Codespace: port is private. Elsewhere: wrong port or a proxy | Make the port Public (see above) |
+| `Nothing is listening on …` | Wrong port, or panel not running | `curl <panelUrl>/api/health` on the node |
+| `"…" does not resolve` | Typo in the hostname | Copy the URL from the panel again |
+| `The panel answered 404` | Reachable, but not a ZK-MC3 panel | Check the address and port |
 | Server starts then dies instantly | Missing Java, bad jar, port in use | Read the server's console in the panel |
 | Node shows a LAN address like `10.0.0.5` | No public IP detected | Set `ZK_PUBLIC_HOST` to your public IP or DNS name |
 

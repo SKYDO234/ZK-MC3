@@ -215,7 +215,22 @@ round-trip to the daemon (usually 1–50 ms).
 | Node stays offline; log says connected | Panel restarted and is still booting | Wait a few seconds; it reconnects by itself |
 | `Node.js v18 is too old` | Node 20+ required | Install Node 20 (see *Before you start*) |
 | Node shows a `10.x` address | No public IP detected (NAT) | Set `ZK_PUBLIC_HOST` (below) |
+| `ECONNRESET` / "connection was reset" | Panel is in a Codespace and the port is **private** | Ports tab → port `31120` → right-click → Port Visibility → **Public** |
 | Java shows "not installed" | No JDK on the node | `apt install openjdk-21-jre-headless` |
+
+### If the panel runs in a GitHub Codespace
+
+A Codespace only exposes a port to the internet when it is marked **public**.
+Private ports reset the connection, and no amount of retrying will help.
+
+1. Open the **Ports** tab in the Codespace.
+2. Right-click the panel's port (`31120`) → **Port Visibility** → **Public**.
+3. Use the URL it shows — `https://<codespace>-31120.app.github.dev` — as
+   `<panel-url>`, exactly.
+
+The daemon retries every 15 seconds, so once the port is public it connects on
+its own; no restart needed. Remember that a public port is reachable by anyone
+with the URL — change the default `admin` password.
 
 ### Setting the public address by hand
 

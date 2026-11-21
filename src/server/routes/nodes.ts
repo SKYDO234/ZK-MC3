@@ -54,11 +54,13 @@ router.post("/", async (req: any, res) => {
 
     // The only time the token is ever returned. It is what the install command
     // carries, and it is why this response is not the same shape as GET /.
+    const panelUrl = panelBaseUrl(req);
     res.status(201).json({
       ...node,
       token: node.token,
-      panelUrl: panelBaseUrl(req),
-      installCommand: `node . --token ${node.token} --panel ${panelBaseUrl(req)}`,
+      panelUrl,
+      installCommand: `node . --token ${node.token} --panel ${panelUrl}`,
+      warnings: installWarnings(panelUrl),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -85,9 +87,11 @@ router.post("/:id/token/rotate", async (req: any, res) => {
     ip: clientIp(req),
   });
 
+  const panelUrl = panelBaseUrl(req);
   res.json({
     token,
-    installCommand: `node . --token ${token} --panel ${panelBaseUrl(req)}`,
+    installCommand: `node . --token ${token} --panel ${panelUrl}`,
+    warnings: installWarnings(panelUrl),
     note: "The daemon on that machine must be restarted with the new token.",
   });
 });
@@ -178,6 +182,35 @@ const panelBaseUrl = (req: any) => {
     .split(",")[0]
     .trim();
   return `${proto}://${host || `127.0.0.1:${process.env.PORT || 31120}`}`;
+};
+
+/**
+ * Warnings worth showing next to the install command.
+ *
+ * Both of these leave the operator with a daemon that retries forever, and the
+ * cause is invisible from the panel unless it is stated up front.
+ */
+const installWarnings = (panelUrl: string) => {
+  const warnings: string[] = [];
+  let host = "";
+  try {
+    const parsed = new URL(panelUrl);
+    host = parsed.hostname;
+    if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(host)) {
+      warnings.push(
+        "This command points at localhost. Another machine cannot reach that — open the panel on its public address (or a Codespace URL) and generate the command again."
+      );
+    }
+    if (/\.app\.github\.dev$/i.test(host)) {
+      const port = parsed.port || "31120";
+      warnings.push(
+        `This is a Codespace URL. Port ${port} must be PUBLIC or the daemon cannot connect: Ports tab → ${port} → right-click → Port Visibility → Public.`
+      );
+    }
+  } catch {
+    /* not worth blocking on */
+  }
+  return warnings;
 };
 
 export default router;
