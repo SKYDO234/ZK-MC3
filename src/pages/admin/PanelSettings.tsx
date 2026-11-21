@@ -23,6 +23,10 @@ import {
   Puzzle,
   ExternalLink,
   Info,
+  MonitorPlay,
+  Cpu,
+  DownloadCloud,
+  Loader2,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import { Card, CardHeader, Button, Field, Tabs, Switch, Badge, PageSkeleton, Modal } from "../../components/ui";
@@ -56,7 +60,20 @@ export const PanelSettings: React.FC = () => {
     requestedTab && TABS.some((t) => t.id === requestedTab) ? requestedTab : "branding"
   );
   const [form, setForm] = useState<any>({});
+  // Host VM capability is fetched separately from panel settings: it describes
+  // this machine, not a saved preference.
+  const [vmHost, setVmHost] = useState<{
+    ready: boolean;
+    blocker: string | null;
+    kvm: boolean;
+    kvmReason: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api<{ ready: boolean; blocker: string | null; kvm: boolean; kvmReason: string }>("/system/vm/host")
+      .then((data) => setVmHost(data))
+      .catch(() => setVmHost(null));
+  }, []);
   // The persisted value, so the Features tab can distinguish saved from unsaved.
   const [savedPlayit, setSavedPlayit] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -556,6 +573,71 @@ GET    /api/admin/dashboard      Admin metrics`}
               >
                 playit.gg <ExternalLink size={10} />
               </a>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="Virtual machines"
+                subtitle="Real QEMU guests, controlled from the server console"
+                icon={<MonitorPlay size={16} />}
+              />
+              <div className="mt-5 space-y-3">
+                {vmHost ? (
+                  <div
+                    className={`flex items-start gap-2 rounded-xl border px-4 py-3 ${
+                      vmHost.ready
+                        ? "border-emerald-500/25 bg-emerald-500/[0.06]"
+                        : "border-amber-500/25 bg-amber-500/[0.06]"
+                    }`}
+                  >
+                    <Cpu size={13} className={`mt-0.5 flex-none ${vmHost.ready ? "text-emerald-400" : "text-amber-400"}`} />
+                    <div className="text-[0.7rem] leading-relaxed">
+                      <p className={`font-medium ${vmHost.ready ? "text-emerald-200" : "text-amber-200"}`}>
+                        {vmHost.ready ? "This node can run virtual machines" : "QEMU is not installed"}
+                      </p>
+                      <p className={vmHost.ready ? "text-emerald-100/60" : "text-amber-100/60"}>
+                        {vmHost.ready
+                          ? vmHost.kvm
+                            ? "KVM available — guests run at near-native speed."
+                            : `Software emulation (${vmHost.kvmReason}). About 3 minutes to a login prompt.`
+                          : vmHost.blocker}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3">
+                    <Loader2 size={12} className="zk-spin text-zinc-500" />
+                    <p className="text-[0.7rem] text-zinc-500">Checking host capabilities…</p>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3">
+                  <p className="mb-2 text-[0.64rem] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+                    Install on this host
+                  </p>
+                  <pre className="overflow-x-auto rounded-lg bg-black/50 px-3 py-2 font-mono text-[0.64rem] leading-relaxed text-zinc-400">
+{`curl -fsSLO ${window.location.origin}/downloads/vm-setup.sh
+sudo bash vm-setup.sh`}
+                  </pre>
+                  <a
+                    href="/downloads/vm-setup.sh"
+                    download
+                    className="mt-2.5 inline-flex items-center gap-1.5 text-[0.66rem] text-brand-400 hover:text-brand-300"
+                  >
+                    <DownloadCloud size={11} /> Download vm-setup.sh
+                  </a>
+                </div>
+
+                <div className="flex items-start gap-1.5 rounded-xl border border-white/[0.07] bg-black/25 px-3 py-2.5">
+                  <Info size={11} className="mt-0.5 flex-none text-zinc-500" />
+                  <p className="text-[0.66rem] leading-relaxed text-zinc-500">
+                    Images come from Canonical and Debian directly and are cached in{" "}
+                    <span className="font-mono text-zinc-400">/var/lib/vm-images</span>. Without{" "}
+                    <span className="font-mono text-zinc-400">NET_ADMIN</span> there is no bridging — guests reach the
+                    network outbound and accept inbound only on forwarded ports bound to 127.0.0.1.
+                  </p>
+                </div>
+              </div>
             </Card>
           </div>
         )}

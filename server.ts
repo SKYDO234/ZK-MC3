@@ -77,6 +77,20 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Raw keystrokes for a VM's guest tty. The Minecraft path sends whole lines
+  // and lets the JVM parse them; a serial console has no line protocol, so
+  // control characters, arrow keys and Tab must reach the guest intact.
+  socket.on("server:keys", async ({ serverId, data }: any) => {
+    if (!(await canAccess(user, serverId))) return;
+    try {
+      const { vmConsoleInput } = await import("./src/server/services/runtime");
+      const ok = await vmConsoleInput(serverId, String(data || ""));
+      if (!ok) socket.emit("server:error", { message: "The guest console is not attached yet." });
+    } catch (err: any) {
+      socket.emit("server:error", { message: err.message });
+    }
+  });
+
   socket.on("stats:subscribe", () => socket.join("stats"));
 });
 
@@ -142,6 +156,15 @@ app.get("/downloads/zkdaemon.zip", (req, res) => {
       .send("The daemon package has not been built. Run `npm run build:daemon`.");
   }
   res.download(file, "zkdaemon.zip");
+});
+
+// The VM host setup script, served so an operator never has to clone the repo
+// just to install QEMU.
+app.get("/downloads/vm-setup.sh", (_req, res) => {
+  const file = path.join(process.cwd(), "scripts", "vm-setup.sh");
+  if (!fs.existsSync(file)) return res.status(404).type("text/plain").send("vm-setup.sh is missing from this build.");
+  res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
+  res.sendFile(file);
 });
 
 app.get("/api/daemon/version", (_req, res) => {
