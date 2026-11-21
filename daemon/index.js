@@ -31,6 +31,7 @@ const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
 const http = require("http");
+const https = require("https");
 const { spawn } = require("child_process");
 const { StringDecoder } = require("string_decoder");
 
@@ -56,6 +57,131 @@ const info = (m) => say("  " + cyan("›") + " " + m);
 const warn = (m) => say("  " + amber("!") + " " + m);
 const fail = (m) => say("  " + red("✖") + " " + m);
 const section = (m) => say("\n" + orange("▸") + " " + white(m));
+
+/* ─────────────────────────────────────────────────────── connectivity probe */
+
+/**
+ * Explains *why* the panel cannot be reached.
+ *
+ * socket.io collapses every transport failure into `connect_error("websocket
+ * error")`: DNS, refused ports, a private Codespace port, a TLS failure and a
+ * wrong path all look identical. An operator staring at that line cannot act on
+ * it, so before connecting we ask the panel for /api/health over plain HTTP and
+ * report exactly what came back.
+ *
+ * Returns null when the panel looks fine, or a human-readable diagnosis.
+ */
+const probePanel = (url) =>
+  new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(url);
+    } catch {
+      return resolve(`"${url}" is not a valid URL. Use the full address, e.g. https://panel.example.com`);
+    }
+    if (!/^https?:$/.test(target.protocol)) {
+      return resolve(`The panel URL must start with http:// or https:// (got "${target.protocol}")`);
+    }
+
+    const client = target.protocol === "https:" ? https : http;
+    const path = `${target.pathname.replace(/\/+$/, "")}/api/health`;
+    let settled = false;
+    const done = (value) => {
+      if (!settled) {
+        settled = true;
+        resolve(value);
+      }
+    };
+
+    const req = client.get(
+      {
+        hostname: target.hostname,
+        port: target.port || (target.protocol === "https:" ? 443 : 80),
+        path,
+        timeout: 10000,
+        headers: { "User-Agent": `zkdaemon/${VERSION}` },
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          body += c;
+          if (body.length > 8192) res.destroy();
+        });
+        const finish = () => {
+          if (res.statusCode === 200 && /"panel"/.test(body)) return done(null);
+
+          // GitHub Codespaces answers a private port with its sign-in page, or
+          // refuses the connection outright — both mean "make the port public".
+          const codespace = /\.app\.github\.dev$/i.test(target.hostname);
+          if (codespace && (res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 302)) {
+            return done(
+              "The panel's Codespace port is not public (HTTP " +
+                res.statusCode +
+                ").\n" +
+                "   Fix: in the Codespace open the Ports tab → find port " +
+                (target.port || "31120") +
+                " → right-click → Port Visibility → Public.\n" +
+                "   Then restart this daemon."
+            );
+          }
+          if (codespace && /sign in|github|login/i.test(body) && res.statusCode !== 200) {
+            return done(
+              "The panel's Codespace port is private — GitHub served its sign-in page instead of the panel.\n" +
+                "   Fix: Ports tab → port " +
+                (target.port || "31120") +
+                " → right-click → Port Visibility → Public."
+            );
+          }
+          if (res.statusCode === 404) {
+            return done(
+              `The panel answered 404 for ${path}.\n` +
+                "   That address is reachable but is not a ZK-MC3 panel — check the URL and the port."
+            );
+          }
+          return done(`The panel answered HTTP ${res.statusCode} for ${path}.`);
+        };
+        res.on("end", finish);
+        res.on("close", finish);
+      }
+    );
+
+    req.on("timeout", () =>
+      done(
+        `The connection to ${target.hostname}:${target.port || (target.protocol === "https:" ? 443 : 80)} timed out.\n` +
+          "   The host is not reachable from this machine — check the address, and that the panel is running."
+      )
+    );
+
+    req.on("error", (err) => {
+      const code = err.code || "";
+      if (code === "ECONNREFUSED") {
+        return done(
+          `Nothing is listening on ${target.hostname}:${target.port || 443}.\n` +
+            "   The panel is not running on that port, or the port is not forwarded."
+        );
+      }
+      if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+        return done(`"${target.hostname}" does not resolve. Check the URL for a typo.`);
+      }
+      if (code === "ECONNRESET") {
+        const codespace = /\.app\.github\.dev$/i.test(target.hostname);
+        return done(
+          "The connection was reset before the panel answered (ECONNRESET).\n" +
+            (codespace
+              ? "   On a Codespace this almost always means the port is PRIVATE.\n" +
+                "   Fix: Ports tab → port " +
+                (target.port || "31120") +
+                " → right-click → Port Visibility → Public."
+              : "   The host is reachable but dropped the connection — check it is the panel's port, and that no proxy blocks it.")
+        );
+      }
+      if (/CERT|SSL|TLS/.test(code) || /certificate/i.test(err.message)) {
+        return done(`TLS failed for ${target.hostname} (${code}). The panel's certificate is not trusted.`);
+      }
+      return done(`Could not reach ${target.hostname}: ${code || err.message}`);
+    });
+  });
 
 /* ──────────────────────────────────────────────────────────────── config */
 
@@ -520,6 +646,8 @@ const detectAddress = async () => {
 let socketRef = null;
 let reconnectDelay = 2000;
 let shuttingDown = false;
+/** Timers to clear on shutdown (stats beat, reachability poller). */
+const intervals = new Set();
 
 const connect = async (config) => {
   const { io } = require("socket.io-client");
@@ -531,6 +659,17 @@ const connect = async (config) => {
   section("Connecting");
   info(`Panel ${white(url)}`);
 
+  // Fail with a diagnosis instead of socket.io's "websocket error".
+  const problem = await probePanel(url);
+  if (problem) {
+    fail("Cannot reach the panel.");
+    for (const line of problem.split("\n")) say("    " + line);
+    say("");
+    warn("The daemon stays up and retries every 15 s — fix the above and it will connect.");
+    say("");
+  }
+
+  let lastError = "";
   const socket = io(`${url}/daemon`, {
     transports: ["websocket"],
     reconnection: true,
@@ -540,6 +679,8 @@ const connect = async (config) => {
     auth: { token: config.token, nodeName: config.nodeName || os.hostname(), daemonVersion: VERSION },
   });
   socketRef = socket;
+  for (const timer of intervals) clearInterval(timer);
+  intervals.clear();
 
   socket.on("connect", async () => {
     reconnectDelay = 2000;
@@ -555,12 +696,26 @@ const connect = async (config) => {
   });
 
   socket.on("connect_error", (err) => {
-    const reason = /unauthor/i.test(err.message)
+    // "websocket error" is all socket.io offers, so only the first occurrence
+    // is printed; the preflight above explained the cause. Repeating it every
+    // 15 seconds buried the one useful line.
+    const reason = /unauthor|invalid|token/i.test(err.message)
       ? "the panel rejected this token — copy the install command again"
-      : err.message;
-    fail(`Cannot reach the panel: ${reason}`);
+      : err.message || "connection failed";
+    if (reason !== lastError) {
+      fail(`Connection failed: ${reason}`);
+      if (!/token/i.test(reason)) {
+        info("Run the check again with:  node . --panel " + url + " --token <token>");
+      }
+      lastError = reason;
+    } else {
+      warn(`Retrying in ${Math.round(reconnectDelay / 1000)}s`);
+    }
     reconnectDelay = Math.min(reconnectDelay * 2, 15000);
-    warn(`Retrying in ${Math.round(reconnectDelay / 1000)}s`);
+  });
+
+  socket.on("connect", () => {
+    lastError = "";
   });
 
   socket.on("disconnect", (reason) => {
@@ -598,6 +753,26 @@ const connect = async (config) => {
 
   /* ── periodic stats beat ─────────────────────────────────────────────── */
 
+  // While offline, re-run the diagnosis occasionally: the port may have been
+  // made public, or the panel restarted, and the operator deserves to know
+  // without restarting the daemon.
+  let probeTick = 0;
+  const healthCheck = setInterval(async () => {
+    if (socket.connected) return;
+    probeTick += 1;
+    if (probeTick % 4 !== 0) return;
+    const why = await probePanel(url);
+    if (why) {
+      say("");
+      info("Still cannot reach the panel:");
+      for (const line of why.split("\n")) say("    " + line);
+      say("");
+    } else {
+      ok("The panel is reachable again — reconnecting…");
+    }
+  }, 15000);
+  intervals.add(healthCheck);
+
   const beat = setInterval(async () => {
     if (!socket.connected) return;
     socket.emit("node:stats", {
@@ -609,8 +784,7 @@ const connect = async (config) => {
       })),
     });
   }, 5000);
-  socket.on("disconnect", () => clearInterval(beat));
-  socket.on("connect", () => beat.refresh?.());
+  intervals.add(beat);
 };
 
 /* ──────────────────────────────────────────────────────────────── startup */

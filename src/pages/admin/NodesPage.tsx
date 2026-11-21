@@ -427,6 +427,18 @@ export const NodesPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Warnings the panel raised about the command's reachability. */}
+            {(created.warnings || []).length > 0 && (
+              <div className="space-y-1.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+                {(created.warnings as string[]).map((w) => (
+                  <p key={w} className="flex items-start gap-1.5 text-[0.63rem] leading-relaxed text-amber-200">
+                    <AlertTriangle size={11} className="mt-0.5 flex-none" />
+                    <span>{w}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+
             {/* ── 2 · run ──────────────────────────────────────────────── */}
             <div className="rounded-lg border border-white/[0.07] p-3">
               <p className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
