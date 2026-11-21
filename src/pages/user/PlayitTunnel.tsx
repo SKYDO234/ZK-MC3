@@ -230,10 +230,16 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
             <p className="mt-2 text-[0.74rem] leading-relaxed text-zinc-500">{ui.blurb}</p>
 
             {state?.error && state.status === "error" && (
-              <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-2.5 py-2 text-[0.7rem] leading-relaxed text-rose-300">
-                <AlertTriangle size={12} className="mt-0.5 flex-none" />
-                {state.error}
-              </p>
+              <>
+                <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-2.5 py-2 text-[0.7rem] leading-relaxed text-rose-300">
+                  <AlertTriangle size={12} className="mt-0.5 flex-none" />
+                  <span className="min-w-0 break-words">{state.error}</span>
+                </p>
+                <p className="mt-1.5 text-[0.66rem] leading-relaxed text-zinc-500">
+                  Press <span className="text-zinc-300">Start tunnel</span> to try again. If it fails the same way,
+                  the agent's own output below is the full story — copy it before resetting.
+                </p>
+              </>
             )}
 
             {/* address readout */}
