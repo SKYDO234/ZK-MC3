@@ -410,47 +410,6 @@ and the panel surfaces a clear warning if Java is missing.
 
 ---
 
-## 🖥 QEMU virtual machines
-
-Real VMs — each guest boots its own kernel with its own disk, memory and network
-stack — on official Ubuntu Server cloud images.
-
-```bash
-wget -O zkvm.tar.gz http://<panel>/downloads/zkvm.tar.gz
-tar -xzf zkvm.tar.gz
-sudo bash qemu/setup.sh            # installs QEMU + the zkvm command
-sudo zkvm create --name dev --ram 2048 --disk 20 --series 22.04
-sudo zkvm start dev
-```
-
-`zkvm doctor` reports the environment before you commit to anything: whether
-`/dev/kvm` is usable (native speed) or the manager must fall back to **TCG
-software emulation** (10–30× slower), which tools are missing, free disk, and
-exactly which networking modes the host permits.
-
-Images are downloaded from `cloud-images.ubuntu.com` and verified against
-Canonical's `SHA256SUMS`:
-
-| Series | Image |
-|---|---|
-| 20.04 LTS | `releases/20.04/release/ubuntu-20.04-server-cloudimg-amd64.img` |
-| 22.04 LTS | `releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img` |
-| 24.04 LTS | `releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img` |
-| 26.04 LTS | `releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img` |
-
-Availability is probed live, and the three outcomes are reported distinctly:
-*available*, *not published by Canonical*, and *could not reach the server* — it
-never blames Ubuntu for a local network problem.
-
-**Codespaces limits, stated plainly:** there is no nested virtualisation, so VMs
-run under TCG; inbound access is only through host-forwarded localhost ports
-(forward `2222` in the Ports tab to reach SSH from your machine); and bridged/TAP
-networking is unavailable because there is no `NET_ADMIN` capability.
-
-Full details: [`vm/qemu/README.md`](vm/qemu/README.md).
-
----
-
 ## 🖼 Screenshots
 
 <div align="center">

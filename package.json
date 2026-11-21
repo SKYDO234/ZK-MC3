@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "vite build && npm run build:server && npm run build:daemon && npm run build:vm",
+    "build": "vite build && npm run build:server && npm run build:daemon",
     "start": "node dist/server.cjs",
     "createuser": "tsx scripts/createuser.ts",
     "typecheck": "tsc --noEmit",
@@ -18,8 +18,7 @@
     "qa:password": "node qa-password.mjs",
     "build:daemon": "node scripts/build-daemon.mjs",
     "build:server": "node scripts/build-server.mjs",
-    "build:ui": "vite build",
-    "build:vm": "node scripts/build-vm.mjs"
+    "build:ui": "vite build"
   },
   "dependencies": {
     "archiver": "^7.0.1",

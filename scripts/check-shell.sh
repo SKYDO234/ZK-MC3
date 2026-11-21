@@ -14,13 +14,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 STATUS=0
 
-# Root-level lifecycle scripts, plus the QEMU VM manager tree.
-FILES="install.sh update.sh uninstall.sh"
-for f in vm/qemu/lib.sh vm/qemu/images.sh vm/qemu/zkvm vm/qemu/setup.sh; do
-  [ -f "$f" ] && FILES="$FILES $f"
-done
-
-for file in $FILES; do
+for file in install.sh update.sh uninstall.sh; do
   [ -f "$file" ] || continue
   printf '▸ %s\n' "$file"
 
@@ -44,15 +38,6 @@ assigned = set(re.findall(r'(?:^|[\s;])(?:local\s+|export\s+|readonly\s+)?([A-Za
 assigned |= set(re.findall(r'read\s+(?:-[a-zA-Z]+\s+)*(?:-p\s+"[^"]*"\s+)?([A-Za-z_][A-Za-z0-9_]*)', src))
 # positional/special params and vars supplied by the caller's environment
 assigned |= {'BASH_SOURCE', 'FUNCNAME', 'PIPESTATUS', 'RANDOM', 'SECONDS', 'LINENO'}
-
-#  Variables a file declares in a *sourced* helper. vm/qemu/zkvm and
-#  vm/qemu/setup.sh both `. lib.sh`, which assigns these; without this the guard
-#  reports every one of them as an unset-variable hazard.
-for helper in ('vm/qemu/lib.sh', 'vm/qemu/images.sh'):
-    import os
-    if os.path.exists(helper):
-        hsrc = open(helper).read()
-        assigned |= set(re.findall(r'(?:^|[\s;])(?:local\s+|export\s+|readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)=', hsrc, re.M))
 
 risky = []
 for var in sorted(set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', src))):
