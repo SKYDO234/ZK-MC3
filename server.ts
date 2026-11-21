@@ -144,6 +144,21 @@ app.get("/downloads/zkdaemon.zip", (req, res) => {
   res.download(file, "zkdaemon.zip");
 });
 
+// ---------------------------------------------------------------------------
+// QEMU VM environment — the manager is a self-contained shell tree, so it ships
+// as a tar.gz the operator unpacks and runs with `sudo bash setup.sh`.
+// ---------------------------------------------------------------------------
+app.get("/downloads/zkvm.tar.gz", (req, res) => {
+  const file = path.join(process.cwd(), "dist", "downloads", "zkvm.tar.gz");
+  if (!fs.existsSync(file)) {
+    return res
+      .status(404)
+      .type("text/plain")
+      .send("The VM package has not been built. Run `npm run build:vm`.");
+  }
+  res.download(file, "zkvm.tar.gz");
+});
+
 app.get("/api/daemon/version", (_req, res) => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "daemon", "package.json"), "utf8"));

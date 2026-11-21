@@ -831,23 +831,15 @@ export const ServerView: React.FC = () => {
   const liveStatus = stats?.isRunning ? "online" : stats?.status || server.status;
   const isOnline = liveStatus === "online";
 
-  // A Linux VM has no server.properties, no Minecraft players and no plugin
-  // loader. Showing those tabs would offer forms that write files nothing reads.
-  const isVmServer = (server.software || "").toUpperCase() === "VM";
-
   const tabs = [
     { id: "console", label: "Console", icon: <Terminal size={15} /> },
-    ...(isVmServer ? [] : [{ id: "settings", label: "Properties", icon: <FileText size={15} /> }]),
+    { id: "settings", label: "Properties", icon: <FileText size={15} /> },
     { id: "files", label: "File Manager", icon: <FolderTree size={15} /> },
     { id: "tunnel", label: "Tunnel", icon: <Globe2 size={15} /> },
-    ...(isVmServer ? [] : [{ id: "players", label: "Players", icon: <Users size={15} /> }]),
-    ...(isVmServer ? [] : [{ id: "plugins", label: "Plugins", icon: <Puzzle size={15} /> }]),
+    { id: "players", label: "Players", icon: <Users size={15} /> },
+    { id: "plugins", label: "Plugins", icon: <Puzzle size={15} /> },
     { id: "backups", label: "Backups", icon: <Archive size={15} /> },
   ];
-
-  // If a server's software changed under an open tab, fall back to the console
-  // rather than rendering a pane that no longer exists.
-  const activeTab = tabs.some((t) => t.id === tab) ? tab : "console";
 
   return (
     <div className="space-y-4">
@@ -950,7 +942,7 @@ export const ServerView: React.FC = () => {
         strip and the console takes the full width.
       */}
       <div className="lg:hidden">
-        <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
+        <Tabs tabs={tabs} active={tab} onChange={setTab} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,208px)_minmax(0,1fr)]">
@@ -1031,13 +1023,13 @@ export const ServerView: React.FC = () => {
 
         {/* ------------------------------------------------------ content */}
         <div className="zk-fade-up min-w-0" key={tab}>
-          {activeTab === "console" && <ConsoleTab server={server} onStatus={setStatus} onRefresh={reload} />}
-          {activeTab === "files" && <FilesTab server={server} />}
-          {activeTab === "plugins" && <PluginsTab server={server} />}
-          {activeTab === "players" && <PlayersTab server={server} />}
-          {activeTab === "tunnel" && <PlayitTunnel serverId={server.id} enabled={playitEnabled} />}
-          {activeTab === "backups" && <BackupsTab server={server} />}
-          {activeTab === "settings" && <PropertiesAndSettings server={server} onSaved={reload} />}
+          {tab === "console" && <ConsoleTab server={server} onStatus={setStatus} onRefresh={reload} />}
+          {tab === "files" && <FilesTab server={server} />}
+          {tab === "plugins" && <PluginsTab server={server} />}
+          {tab === "players" && <PlayersTab server={server} />}
+          {tab === "tunnel" && <PlayitTunnel serverId={server.id} enabled={playitEnabled} />}
+          {tab === "backups" && <BackupsTab server={server} />}
+          {tab === "settings" && <PropertiesAndSettings server={server} onSaved={reload} />}
         </div>
       </div>
     </div>

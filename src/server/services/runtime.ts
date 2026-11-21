@@ -21,7 +21,6 @@ import {
   jarMirrors,
   forgeInstallerUrl,
   isRuntime,
-  isVm,
   isProxy,
   SOFTWARE_LABEL,
 } from "./software";
@@ -263,74 +262,6 @@ export const writeServerProperties = async (server: ServerRecord, overrides: Rec
   return merged;
 };
 
-/**
- * Installs the Linux-VM image (a ~10 KB jar) plus the small launcher it needs.
- *
- * The image is a PRoot userspace manager: it downloads an Ubuntu/Debian rootfs
- * on first boot and hands back a shell. Two things must therefore be true before
- * it is handed to the console:
- *
- *   • Java 21 is present — the class file is version 65.
- *   • `tar` and `curl`-equivalent network access exist on the node, because the
- *     image shells out to `tar -xpf` when it extracts the rootfs.
- *
- * We write a `vm.properties` alongside it recording the chosen guest, so a later
- * start does not have to re-ask.
- */
-const provisionVmImage = async (server: ServerRecord, log: (m: string) => void) => {
-  const dir = serverDir(server.id);
-  const jarPath = path.join(dir, "server.jar");
-
-  const javaMajor = server.javaVersion || "21";
-  const java = await resolveJava(javaMajor);
-  if (!java) {
-    throw new Error(
-      `Java ${javaMajor} is required for the Linux VM image but was not found on this node. ` +
-        `Install it with "bash install.sh" (or apt install openjdk-21-jre-headless), or set JAVA_BIN.`
-    );
-  }
-
-  const haveJar = await fs.pathExists(jarPath);
-  const bigEnough = haveJar ? (await fs.stat(jarPath)).size > 2 * 1024 : false;
-  if (!bigEnough) {
-    log(`[Panel] Installing the Linux VM image (${server.version || "ubuntu-24.04"}) ...`);
-    await downloadServerJar("VM", server.version, jarPath, log);
-  } else {
-    log("[Panel] Linux VM image already present — reusing it.");
-  }
-
-  // Record the chosen guest so `vm.properties` is the single source of truth for
-  // which rootfs gets installed, and so it is visible/editable in File Manager.
-  const guest = server.version || "ubuntu-24.04";
-  const propsPath = path.join(dir, "vm.properties");
-  const existing = (await fs.pathExists(propsPath)) ? await fs.readFile(propsPath, "utf8") : "";
-  if (!existing.trim()) {
-    await fs.writeFile(
-      propsPath,
-      [
-        "# ZK-MC3-PANEL · Linux VM",
-        "# The image reads this on first boot; changing it after setup does nothing",
-        "# until the environment is reset from the console:  java -jar server.jar --reset",
-        `image=${guest}`,
-        "hostname=hopingboyz-vm",
-        "mode=proot",
-        "",
-      ].join("\n")
-    );
-    log(`[Panel] VM guest set to ${guest}.`);
-  }
-
-  // tar is needed by the image to unpack the rootfs; report it now rather than
-  // letting first boot fail minutes into a download.
-  const hasTar = await fs
-    .access("/bin/tar")
-    .then(() => true)
-    .catch(() => fs.access("/usr/bin/tar").then(() => true).catch(() => false));
-  if (!hasTar) {
-    log("[Panel] WARNING: tar is missing on this node — the VM cannot unpack its rootfs. Install it with: apt install tar");
-  }
-};
-
 export const provisionServerFiles = async (server: ServerRecord, onLog?: (m: string) => void) => {
   const dir = serverDir(server.id);
   await fs.ensureDir(dir);
@@ -395,14 +326,6 @@ HTTPServer(("0.0.0.0", port), Handler).serve_forever()
     if (!(await fs.pathExists(path.join(dir, "requirements.txt")))) {
       await fs.writeFile(path.join(dir, "requirements.txt"), "# Add dependencies here\n");
     }
-    return;
-  }
-
-  // The Linux-VM image is not a Minecraft server: it reads neither eula.txt nor
-  // server.properties, and writing them would just be confusing noise in the
-  // file manager.
-  if (isVm(software)) {
-    await provisionVmImage(server, log);
     return;
   }
 
@@ -515,17 +438,6 @@ const buildStartArgs = async (server: ServerRecord) => {
     throw new Error(`The ${SOFTWARE_LABEL(software)} launch files are missing — reinstall the server.`);
   }
 
-  // The Linux-VM image takes a guest selection, not Minecraft flags. `nogui` and
-  // `--nojline` are meaningless to it and would be reported as unknown options.
-  if (isVm(software)) {
-    const guest = server.version || "ubuntu-24.04";
-    const args = [...vmMemoryArgs(server.ram), "-Dvm.image=" + guest, "-jar", "server.jar"];
-    // --stdout keeps the image out of its interactive TUI so its output reaches
-    // the console; the guest shell still reads stdin, so the console stays live.
-    args.push("--stdout");
-    return { cmd: java, args };
-  }
-
   const custom = String(server.startupCommand || "").trim();
   if (custom) {
     const [bin, ...args] = custom.split(/\s+/);
@@ -550,22 +462,6 @@ const buildStartArgs = async (server: ServerRecord) => {
     cmd: java,
     args: [...minecraftJavaArgs(server.ram), "-jar", "server.jar", "nogui", "--nojline"],
   };
-};
-
-/**
- * JVM memory flags for the Linux-VM image.
- *
- * Deliberately NOT minecraftJavaArgs(): Aikar's flags tune the Minecraft server's
- * allocation rate and add GC threads sized for a game world. The image is an idle
- * JVM waiting on a shell, so it only needs a sane heap and the rest of the
- * server's RAM left to the guest processes running inside it.
- */
-const vmMemoryArgs = (ramMb: number) => {
-  const ram = Math.max(512, Number(ramMb) || 1024);
-  // Half the allocation, capped at 2 GB: the guest (apt, package builds) needs
-  // the memory more than the launcher JVM does.
-  const heap = Math.min(2048, Math.max(256, Math.floor(ram / 2)));
-  return [`-Xms${Math.min(256, heap)}M`, `-Xmx${heap}M`, "-XX:+UseSerialGC"];
 };
 
 const firstExistingEntry = async (dir: string, candidates: string[]) => {
@@ -668,12 +564,6 @@ const remoteLaunchCommand = async (server: ServerRecord) => {
   if (software === "PYTHON") return { command: "python3", args: ["-u", "main.py"] };
   if (software === "FORGE" || software === "NEOFORGE") {
     return { command: "sh", args: ["run.sh", "nogui"], fallback: { command: "java", args: minecraftJavaArgs(ram) } };
-  }
-  if (isVm(software)) {
-    return {
-      command: "java",
-      args: [...vmMemoryArgs(ram), `-Dvm.image=${server.version || "ubuntu-24.04"}`, "-jar", "server.jar", "--stdout"],
-    };
   }
   if (isProxy(software)) {
     return {
@@ -888,7 +778,7 @@ export const startServer = async (serverId: string, triggeredBy = "panel") => {
         await writeLog(serverId, `[Panel] ${SOFTWARE_LABEL(software)} ${server.version} is not installed yet — starting installation...`);
         await provisionServerFiles(server, (msg) => void writeLog(serverId, msg));
       }
-      if (!isVm(software)) await fs.writeFile(path.join(dir, "eula.txt"), "eula=true\n");
+      await fs.writeFile(path.join(dir, "eula.txt"), "eula=true\n");
     }
 
     const { cmd, args } = await buildStartArgs(server);

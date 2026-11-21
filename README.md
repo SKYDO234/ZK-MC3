@@ -408,33 +408,46 @@ Minecraft software additionally needs a JDK on the host
 (`sudo apt install openjdk-21-jre-headless`). The installer attempts this automatically
 and the panel surfaces a clear warning if Java is missing.
 
-### 🐧 Linux VM servers
+---
 
-`software: "VM"` deploys a **Linux userspace**, not a Minecraft server. The panel
-installs the [Hopingboyz VM Manager](https://github.com/habibasultanaziya-ship-it/Vms)
-image (a ~10 KB jar, pinned by commit **and SHA-256**) and runs it on the JVM:
+## 🖥 QEMU virtual machines
 
-```
-java -Xms256M -Xmx512M -XX:+UseSerialGC -Dvm.image=debian-12 -jar server.jar --stdout
-```
+Real VMs — each guest boots its own kernel with its own disk, memory and network
+stack — on official Ubuntu Server cloud images.
 
 ```bash
-curl -X POST http://localhost:31120/api/servers \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"Dev Box","software":"VM","version":"debian-12","ram":2048,"port":25571}'
+wget -O zkvm.tar.gz http://<panel>/downloads/zkvm.tar.gz
+tar -xzf zkvm.tar.gz
+sudo bash qemu/setup.sh            # installs QEMU + the zkvm command
+sudo zkvm create --name dev --ram 2048 --disk 20 --series 22.04
+sudo zkvm start dev
 ```
 
-`version` selects the guest: `ubuntu-24.04`, `ubuntu-22.04`, `debian-12`, `debian-13`.
-On first start the image downloads and extracts a rootfs (a few minutes, ~1 GB of
-disk), then drops you into its shell in the server **Console** — console input is the
-guest's stdin, so commands type straight through.
+`zkvm doctor` reports the environment before you commit to anything: whether
+`/dev/kvm` is usable (native speed) or the manager must fall back to **TCG
+software emulation** (10–30× slower), which tools are missing, free disk, and
+exactly which networking modes the host permits.
 
-**What it is not:** PRoot shares the host kernel. There is no KVM, no separate
-kernel and no real privilege boundary — the guest's "root" is faked. Treat anything
-run inside it as running on the host. Do not hand a VM to an untrusted tenant.
+Images are downloaded from `cloud-images.ubuntu.com` and verified against
+Canonical's `SHA256SUMS`:
 
-It also needs `tar` on the node (the image extracts its rootfs with `tar -xpf`);
-the installer provisioning step warns if it is missing.
+| Series | Image |
+|---|---|
+| 20.04 LTS | `releases/20.04/release/ubuntu-20.04-server-cloudimg-amd64.img` |
+| 22.04 LTS | `releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img` |
+| 24.04 LTS | `releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img` |
+| 26.04 LTS | `releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img` |
+
+Availability is probed live, and the three outcomes are reported distinctly:
+*available*, *not published by Canonical*, and *could not reach the server* — it
+never blames Ubuntu for a local network problem.
+
+**Codespaces limits, stated plainly:** there is no nested virtualisation, so VMs
+run under TCG; inbound access is only through host-forwarded localhost ports
+(forward `2222` in the Ports tab to reach SSH from your machine); and bridged/TAP
+networking is unavailable because there is no `NET_ADMIN` capability.
+
+Full details: [`vm/qemu/README.md`](vm/qemu/README.md).
 
 ---
 

@@ -42,6 +42,7 @@ import {
 } from "../services/runtime";
 import {
   SOFTWARE_TYPES,
+  SOFTWARE_DEFINITION,
   javaVersionFor,
   isProxy,
   isRuntime,
@@ -677,6 +678,13 @@ router.post("/", requireScope("servers.write"), async (req: any, res) => {
 
   if (!name || String(name).trim().length < 3)
     return res.status(400).json({ error: "Server name must be at least 3 characters" });
+
+  // `software` was never validated, so a removed type (or any typo) still
+  // produced a server that could never install. Reject it at the door.
+  if (!SOFTWARE_DEFINITION(String(software)))
+    return res.status(400).json({
+      error: `Unknown software type "${software}". Supported: ${SOFTWARE_TYPES.map((s) => s.id).join(", ")}`,
+    });
   if (!ram || Number(ram) < 512) return res.status(400).json({ error: "RAM must be at least 512 MB" });
   if (!port || Number(port) < 1024 || Number(port) > 65535)
     return res.status(400).json({ error: "Port must be between 1024 and 65535" });

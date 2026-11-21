@@ -1,5 +1,4 @@
 import axios from "axios";
-import { createHash } from "crypto";
 import fs from "fs-extra";
 import path from "path";
 
@@ -105,7 +104,7 @@ const upstreamGet = async (url: string, timeout = 7000) => {
   }
 };
 
-export type SoftwareCategory = "SERVER" | "MODDED" | "PROXY" | "RUNTIME" | "VM";
+export type SoftwareCategory = "SERVER" | "MODDED" | "PROXY" | "RUNTIME";
 
 export interface SoftwareDefinition {
   id: string;
@@ -218,15 +217,6 @@ export const SOFTWARE_TYPES: SoftwareDefinition[] = [
     java: "17",
   },
   {
-    id: "VM",
-    label: "Linux VM",
-    category: "VM",
-    description:
-      "Unprivileged PRoot Linux userspace (Ubuntu or Debian) with a real shell and apt. " +
-      "Not a hardware VM — it shares the host kernel and needs no root or KVM.",
-    java: "21",
-  },
-  {
     id: "NODEJS",
     label: "Node.js App",
     category: "RUNTIME",
@@ -242,45 +232,6 @@ export const SOFTWARE_TYPES: SoftwareDefinition[] = [
   },
 ];
 
-/* ------------------------------------------------------------------ Linux VM */
-
-/**
- * The Linux-VM image, published as `server.jar` in its upstream repository.
- *
- * Pinned to a commit rather than `main` so an upstream rewrite cannot silently
- * change what every panel installs. Bump VM_JAR_REF to pick up a new image.
- */
-const VM_JAR_REF = "9699f4af2d00af9ed00787ccdd7deab41b9d4e59";
-const VM_JAR_URL = `https://raw.githubusercontent.com/habibasultanaziya-ship-it/Vms/${VM_JAR_REF}/server.jar`;
-
-/**
- * SHA-256 of that exact jar, verified against the upstream blob.
- *
- * The jar is 10 KB of code that the panel then executes as root-ish on someone's
- * machine. A pinned commit plus a checksum means an upstream account compromise,
- * a force-push, or a tampered mirror cannot change what a node runs — the
- * download fails loudly instead.
- */
-const VM_JAR_SHA256 = "989e1ca63871c9e38e6b772def787fa3aa6e5dd8b13fabafe4fcedf3a6312daf";
-
-/**
- * Userspaces the image can install. These are NOT Minecraft versions — they are
- * the guest distributions. The panel passes the chosen one on the command line
- * (`-Dvm.image=`), so no interactive prompt is needed at first boot.
- */
-export const VM_IMAGES: Array<{ id: string; label: string; family: string }> = [
-  { id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS (Noble)", family: "Ubuntu" },
-  { id: "ubuntu-22.04", label: "Ubuntu 22.04 LTS (Jammy)", family: "Ubuntu" },
-  { id: "debian-12", label: "Debian 12 (Bookworm)", family: "Debian" },
-  { id: "debian-13", label: "Debian 13 (Trixie)", family: "Debian" },
-];
-
-export const VM_DEFAULT_IMAGE = VM_IMAGES[0].id;
-
-/** Labels the version picker shows for a VM instead of Minecraft versions. */
-export const VM_LABEL_FOR = (version: string) =>
-  VM_IMAGES.find((v) => v.id === (version || "").toLowerCase())?.label || version;
-
 export const SOFTWARE_LABEL = (type: string) =>
   SOFTWARE_TYPES.find((s) => s.id === (type || "").toUpperCase())?.label || type;
 
@@ -288,13 +239,6 @@ export const SOFTWARE_DEFINITION = (type: string) =>
   SOFTWARE_TYPES.find((s) => s.id === (type || "").toUpperCase()) || null;
 
 export const isRuntime = (type: string) => ["NODEJS", "PYTHON"].includes((type || "").toUpperCase());
-
-/**
- * True for the Linux-VM image. It runs on the JVM like a Minecraft server, but it
- * is an interactive shell rather than a game server — so it must never be handed
- * Minecraft flags (`nogui`, `--nojline`) or a `server.properties`.
- */
-export const isVm = (type: string) => (type || "").toUpperCase() === "VM";
 
 export const isProxy = (type: string) =>
   ["VELOCITY", "BUNGEECORD", "WATERFALL"].includes((type || "").toUpperCase());
@@ -306,9 +250,6 @@ export const isModded = (type: string) =>
 export const modrinthTypeFor = (software: string): "plugin" | "mod" | null => {
   const type = (software || "").toUpperCase();
   if (isProxy(type)) return null;
-  // A Linux VM has no plugin surface; without this it would inherit "plugin"
-  // and the Plugins tab would offer Minecraft jars for a Debian rootfs.
-  if (isVm(type)) return null;
   return isModded(type) ? "mod" : "plugin";
 };
 
@@ -481,8 +422,7 @@ export const getVersions = async (software: string): Promise<string[]> => {
   let versions: string[] = [];
 
   try {
-    if (key === "VM") versions = VM_IMAGES.map((v) => v.id);
-    else if (key === "NODEJS") versions = ["22", "20", "18"];
+    if (key === "NODEJS") versions = ["22", "20", "18"];
     else if (key === "PYTHON") versions = ["3.12", "3.11", "3.10"];
     else if (key === "PAPER") versions = await fetchPaperProjectVersions("paper");
     else if (key === "VELOCITY") versions = await fetchVelocityVersions();
@@ -700,7 +640,6 @@ export const jarMirrors = async (software: string, version: string): Promise<str
     const api = await paperDownloadsFor("velocity", target);
     return api.length ? api : paperDirectMirrors("velocity", target);
   }
-  if (type === "VM") return [VM_JAR_URL];
   if (type === "PURPUR") return resolvePurpurJar(target);
   if (type === "VANILLA") return resolveVanillaJar(target);
   if (type === "FABRIC") return resolveFabricJar(target);
@@ -735,16 +674,9 @@ const paperDirectMirrors = (project: string, version: string) => {
   return [...majors, ...urls];
 };
 
-/**
- * Smallest acceptable body for a jar download.
- *
- * Minecraft jars are several MB, so a tiny body there means an HTML error page.
- * The Linux-VM image is ~10 KB of real, valid Java — applying the Minecraft floor
- * to it made every download look like junk and fail with "every mirror failed".
- */
-const minJarBytes = (software: string) => ((software || "").toUpperCase() === "VM" ? 2 * 1024 : 500 * 1024);
+const MIN_JAR_BYTES = 500 * 1024;
 
-const streamToFile = async (url: string, dest: string, minBytes: number): Promise<boolean> => {
+const streamToFile = async (url: string, dest: string): Promise<boolean> => {
   try {
     const res = await axios.get(url, {
       responseType: "stream",
@@ -762,7 +694,7 @@ const streamToFile = async (url: string, dest: string, minBytes: number): Promis
       res.data.on("error", reject);
     });
     const stat = await fs.stat(dest);
-    if (stat.size < minBytes) {
+    if (stat.size < MIN_JAR_BYTES) {
       await fs.remove(dest).catch(() => {});
       return false;
     }
@@ -808,23 +740,8 @@ export const downloadServerJar = async (
       onLog(`[Panel] Downloading ${label} ${version} from ${host} ...`);
       lastHost = host;
     }
-    const ok = await streamToFile(url, temp, minJarBytes(type));
+    const ok = await streamToFile(url, temp);
     if (!ok) continue;
-
-    // A pinned, checksummed image gets no silent upgrade path.
-    if (type === "VM") {
-      const digest = createHash("sha256").update(await fs.readFile(temp)).digest("hex");
-      if (digest !== VM_JAR_SHA256) {
-        await fs.remove(temp).catch(() => {});
-        onLog(`[Panel] ${label} image failed its checksum — refusing to run it.`);
-        throw new Error(
-          `${label} image checksum mismatch (got ${digest.slice(0, 12)}…, expected ${VM_JAR_SHA256.slice(0, 12)}…). ` +
-            "The pinned file changed upstream; review it before updating VM_JAR_REF and VM_JAR_SHA256."
-        );
-      }
-      onLog(`[Panel] ${label} image verified (SHA-256 ${VM_JAR_SHA256.slice(0, 12)}…).`);
-    }
-
     await fs.move(temp, destPath, { overwrite: true });
     const stat = await fs.stat(destPath);
     onLog(`[Panel] Download complete (${(stat.size / 1024 / 1024).toFixed(1)} MB).`);
@@ -856,8 +773,6 @@ const javaMap: Array<[RegExp, string]> = [
 export const javaMajorFor = (software: string, version: string): string => {
   const type = (software || "").toUpperCase();
   if (isRuntime(type)) return "";
-  // The Linux-VM images are compiled for Java 21 and never change with the guest.
-  if (isVm(type)) return "21";
   if (type === "VELOCITY") return "21";
   if (type === "BUNGEECORD" || type === "WATERFALL") return "17";
   const v = String(version || "").trim();
