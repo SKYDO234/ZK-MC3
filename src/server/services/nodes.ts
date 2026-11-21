@@ -2,15 +2,29 @@ import { readJSON, writeJSON, id, nowISO } from "./db";
 import { systemSnapshot } from "./proc";
 import { listServers } from "./runtime";
 import os from "os";
-import axios from "axios";
 
+/**
+ * Nodes
+ * -----
+ * A node is a separate machine running the ZK daemon (`daemon/`, shipped as
+ * `zkdaemon.zip`). The daemon dials *out* to this panel over Socket.IO — the
+ * panel never connects in — so no address, port or firewall rule is involved
+ * in registering one.
+ *
+ * The only thing a node needs is a token. Everything else (hostname, CPU,
+ * memory, disk, the address players connect to) is reported by the daemon the
+ * first time it says hello, which is why the UI asks for a name and nothing
+ * else.
+ */
 export interface NodeRecord {
   id: string;
   name: string;
+  /** Filled in from the daemon's hello — "unknown" until then. */
   hostname: string;
+  /** Public address reported by the daemon; used for server connection URLs. */
   ip: string;
   port: number;
-  type: "local" | "agent";
+  type: "local" | "daemon";
   token: string;
   cpuCores: number;
   memoryMb: number;
@@ -21,10 +35,19 @@ export interface NodeRecord {
   createdAt: string;
   description?: string;
   allocPortRange?: string;
+  /** Set while the daemon holds a live socket; not persisted. */
+  connected?: boolean;
+  daemonVersion?: string;
+  java?: { installed: boolean; version: string | null };
+  addressSource?: string;
+  /** Last telemetry the daemon sent, written through so cards survive a reload. */
+  usage?: { cpu: number; ram: number; disk: number; memoryPercent: number; diskPercent: number };
+  hostInfo?: { cpuModel?: string; platform?: string; arch?: string; uptime?: number };
 }
 
 const FILE = "nodes.json";
 
+/** Live daemon sockets, keyed by node id. Owned by the realtime layer. */
 export const localNode = async (): Promise<NodeRecord> => {
   const snap = await systemSnapshot();
   return {
@@ -44,144 +67,42 @@ export const localNode = async (): Promise<NodeRecord> => {
     createdAt: new Date(0).toISOString(),
     description: "Built-in node running the panel process and local game servers.",
     allocPortRange: "25565-25665",
+    connected: true,
   };
 };
 
 export const listNodes = async (): Promise<NodeRecord[]> => {
   const stored = await readJSON<NodeRecord[]>(FILE, []);
-  return [await localNode(), ...stored];
+  // Old records may predate the daemon model; normalise them on read.
+  const normalised = stored.map((n) => ({
+    ...n,
+    type: "daemon" as const,
+    ip: n.ip && n.ip !== "0.0.0.0" ? n.ip : "",
+  }));
+  return [await localNode(), ...normalised];
 };
 
 export const saveNodes = (nodes: NodeRecord[]) => writeJSON(FILE, nodes);
 
-export interface ProbeResult {
-  reachable: boolean;
-  authenticated: boolean;
-  message: string;
-  latencyMs: number | null;
-  system?: any;
-  java?: any;
-  processes?: any[];
-}
-
-/**
- * Talks to a node's agent exactly the way `nodeWithUsage` does, but returns the
- * reason it failed instead of swallowing it. Node setup used to fail silently —
- * a mistyped IP, a closed port and a wrong token all looked identical ("offline
- * forever"), which made adding a node a guessing game.
- */
-export const probeNode = async (node: NodeRecord, timeoutMs = 4000): Promise<ProbeResult> => {
-  const started = Date.now();
-  // Step 1 — is anything listening? `/ping` needs no token, so a 401 here is a
-  // definitive "wrong token" instead of an ambiguous failure.
-  try {
-    const ping = await axios.get(`http://${node.ip}:${node.port}/ping`, {
-      timeout: Math.min(timeoutMs, 2500),
-      validateStatus: () => true,
-    });
-    if (ping.status === 200 && ping.data?.pong) {
-      const latencyMs = Date.now() - started;
-      const health = await axios.get(`http://${node.ip}:${node.port}/health`, {
-        timeout: timeoutMs,
-        validateStatus: () => true,
-        headers: node.token ? { Authorization: `Bearer ${node.token}` } : {},
-      });
-      if (health.status === 200 && health.data?.system) {
-        return {
-          reachable: true,
-          authenticated: true,
-          message: "Agent is healthy and reporting telemetry.",
-          latencyMs,
-          system: health.data.system,
-          java: health.data.java,
-          processes: health.data.processes,
-        };
-      }
-      return {
-        reachable: true,
-        authenticated: false,
-        message:
-          health.status === 401 || health.status === 403
-            ? "Agent is running, but it rejected this node's token. Re-copy the install command and restart the agent."
-            : `Agent answered /ping but /health returned HTTP ${health.status}.`,
-        latencyMs,
-      };
-    }
-  } catch {
-    /* fall through to the direct /health attempt below */
-  }
-
-  const url = `http://${node.ip}:${node.port}/health`;
-  try {
-    const res = await axios.get(url, {
-      timeout: timeoutMs,
-      validateStatus: () => true,
-      headers: node.token ? { Authorization: `Bearer ${node.token}` } : {},
-    });
-    const latencyMs = Date.now() - started;
-    if (res.status === 401 || res.status === 403) {
-      return {
-        reachable: true,
-        authenticated: false,
-        message: "Agent reached, but it rejected the node token. Copy the install command again and restart the agent.",
-        latencyMs,
-      };
-    }
-    if (res.status !== 200 || !res.data?.system) {
-      return {
-        reachable: true,
-        authenticated: false,
-        message: `Agent responded with HTTP ${res.status} and no health payload. Is this the ZK-MC3 agent port?`,
-        latencyMs,
-      };
-    }
-    return {
-      reachable: true,
-      authenticated: true,
-      message: "Agent is healthy and reporting telemetry.",
-      latencyMs,
-      system: res.data.system,
-      java: res.data.java,
-      processes: res.data.processes,
-    };
-  } catch (err: any) {
-    const code = err?.code || "";
-    const reason =
-      code === "ECONNREFUSED"
-        ? "Nothing is listening on that host and port. Is the agent running?"
-        : code === "ENOTFOUND" || code === "EAI_AGAIN"
-        ? "That hostname does not resolve. Use the node's public IP address."
-        : code === "ETIMEDOUT" || code === "ECONNABORTED"
-        ? "The connection timed out. Check the firewall allows the agent port."
-        : err?.message || "Unreachable";
-    return { reachable: false, authenticated: false, message: reason, latencyMs: null };
-  }
-};
-
 export const createNode = async (input: Partial<NodeRecord>) => {
   const nodes = await readJSON<NodeRecord[]>(FILE, []);
-  const host = String(input.ip || "").trim();
-  const port = Number(input.port) || 31120;
-  if (nodes.some((n) => n.ip === host && Number(n.port) === port)) {
-    throw new Error(`A node already exists at ${host}:${port}`);
-  }
   const record: NodeRecord = {
     id: id("node_"),
-    name: input.name || "New Node",
-    hostname: input.hostname || host,
-    ip: host || "0.0.0.0",
-    port,
-    type: "agent",
-    token: id("zkt_"),
-    cpuCores: Number(input.cpuCores) || 4,
-    memoryMb: Number(input.memoryMb) || 8192,
-    diskMb: Number(input.diskMb) || 102400,
-    location: input.location || "Default",
+    name: String(input.name || "").trim() || "New Node",
+    hostname: "",
+    ip: "",
+    port: 25565,
+    type: "daemon",
+    token: id("zkn_"),
+    cpuCores: 0,
+    memoryMb: 0,
+    diskMb: 0,
+    location: String(input.location || "").trim(),
     status: "offline",
     lastSeen: null,
     createdAt: nowISO(),
-    description: input.description || "",
-    allocPortRange: input.allocPortRange || "25565-25665",
+    description: String(input.description || ""),
+    allocPortRange: "25565-25665",
   };
   nodes.push(record);
   await saveNodes(nodes);
@@ -208,72 +129,66 @@ export const deleteNode = async (nodeId: string) => {
   await saveNodes(nodes.filter((n) => n.id !== nodeId));
 };
 
+/**
+ * Shapes a node for the API.
+ *
+ * The token is never included: it is handed out exactly once, when the node is
+ * created, because that is the only moment the operator needs it. Everything
+ * afterwards is derived from the live connection.
+ */
 export const nodeWithUsage = async (node: NodeRecord, servers: any[]) => {
-  const mine = servers.filter((s) => node.id === "local" ? !s.nodeId || s.nodeId === "local" : s.nodeId === node.id);
-  let live = { cpu: 0, ram: 0, disk: 0 };
-  let capacity = { cpuCores: node.cpuCores, memoryMb: node.memoryMb, diskMb: node.diskMb };
-  let hostInfo: Record<string, any> = {};
-  let connectivity = "Local process — always reachable.";
+  // A stored "online" is only an opinion from the last time the daemon wrote;
+  // the socket map is the truth.
+  if (node.id !== "local") {
+    node = { ...node, status: node.connected ? "online" : node.status === "maintenance" ? "maintenance" : "offline" };
+  }
+  const mine = servers.filter((s) =>
+    node.id === "local" ? !s.nodeId || s.nodeId === "local" : s.nodeId === node.id
+  );
+
   if (node.id === "local") {
     const snap = await systemSnapshot();
-    live = {
-      cpu: snap.loadPercent,
-      ram: snap.memoryUsedMb,
-      disk: snap.diskUsedMb,
+    return {
+      ...node,
+      token: "",
+      capacity: { cpuCores: snap.cpuCores, memoryMb: snap.memoryTotalMb, diskMb: snap.diskTotalMb },
+      usage: {
+        cpu: snap.loadPercent,
+        ram: snap.memoryUsedMb,
+        disk: snap.diskUsedMb,
+        memoryPercent: snap.memoryPercent,
+        diskPercent: snap.diskPercent,
+      },
+      hostInfo: { cpuModel: snap.cpuModel, platform: snap.platform, arch: snap.arch, uptime: snap.uptime },
+      connectivity: "Local process — always reachable.",
+      serverCount: mine.length,
+      allocated: {
+        ram: mine.reduce((a, s) => a + (s.ram || 0), 0),
+        cpu: mine.reduce((a, s) => a + (s.cpu || 0), 0),
+        disk: mine.reduce((a, s) => a + (s.disk || 0), 0),
+      },
+      uptime: os.uptime(),
     };
-  } else {
-    // Real capacity comes from the agent once it answers, so an operator does
-    // not have to guess how much RAM the box has when registering it.
-    const probe = await probeNode(node, 2500);
-    connectivity = probe.message;
-    if (probe.authenticated && probe.system) {
-      live = {
-        cpu: probe.system.loadPercent ?? probe.system.cpuPercent ?? 0,
-        ram: probe.system.memoryUsedMb ?? 0,
-        disk: probe.system.diskUsedMb ?? 0,
-      };
-      capacity = {
-        cpuCores: probe.system.cpuCores || node.cpuCores,
-        memoryMb: probe.system.memoryTotalMb || node.memoryMb,
-        diskMb: probe.system.diskTotalMb || node.diskMb,
-      };
-      hostInfo = {
-        cpuModel: probe.system.cpuModel,
-        platform: probe.system.platform,
-        arch: probe.system.arch,
-        uptime: probe.system.uptime,
-        java: probe.java,
-        processes: (probe.processes || []).length,
-      };
-      node.status = "online";
-      node.lastSeen = nowISO();
-      node.hostname = probe.system.hostname || node.hostname;
-    } else {
-      node.status = node.status === "maintenance" ? "maintenance" : "offline";
-    }
   }
+
+  const connected = Boolean(node.connected);
   return {
     ...node,
-    // The full token is served by GET /nodes/:id/token so the setup command can
-    // be copied; the list view only ever sees the mask.
-    token: node.token ? "••••••••" : "",
-    tokenHint: node.token ? `${node.token.slice(0, 8)}…` : "",
-    connectivity,
-    capacity,
-    hostInfo,
+    token: "",
+    capacity: { cpuCores: node.cpuCores, memoryMb: node.memoryMb, diskMb: node.diskMb },
+    usage: node.usage || { cpu: 0, ram: 0, disk: 0, memoryPercent: 0, diskPercent: 0 },
+    hostInfo: node.hostInfo || {},
+    connectivity: connected
+      ? "Daemon connected over WebSocket."
+      : node.lastSeen
+      ? "Daemon offline — it reconnects on its own when the machine is back."
+      : "Waiting for the daemon to connect. Run the install command on the node.",
     serverCount: mine.length,
     allocated: {
       ram: mine.reduce((a, s) => a + (s.ram || 0), 0),
       cpu: mine.reduce((a, s) => a + (s.cpu || 0), 0),
       disk: mine.reduce((a, s) => a + (s.disk || 0), 0),
     },
-    usage: {
-      cpu: Math.round(live.cpu),
-      ram: Math.round(live.ram),
-      disk: Math.round(live.disk),
-      memoryPercent: capacity.memoryMb ? Math.round((live.ram / capacity.memoryMb) * 100) : 0,
-      diskPercent: capacity.diskMb ? Math.round((live.disk / capacity.diskMb) * 100) : 0,
-    },
-    uptime: node.id === "local" ? os.uptime() : 0,
+    uptime: 0,
   };
 };

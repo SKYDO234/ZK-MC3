@@ -7,7 +7,6 @@
 #    bash install.sh              Interactive manager menu
 #    bash install.sh install      Fresh install (Node, PM2, Java, panel)
 #    bash install.sh update       Update to the latest version
-#    bash install.sh agent        Install & start the node agent only
 #    bash install.sh createuser   Create / reset an administrator
 #    bash install.sh restart      Restart the panel
 #    bash install.sh status       Show status
@@ -38,7 +37,7 @@ INSTALL_DIR="${ZK_DIR:-/opt/zk-mc3}"
 PANEL_PORT="${PANEL_PORT:-31120}"
 AGENT_PORT="${AGENT_PORT:-6768}"
 PM2_APP="zk-mc3-panel"
-PM2_AGENT="zk-mc3-agent"
+
 NODE_MAJOR=20
 
 # ----------------------------------------------------------------- helpers
@@ -413,49 +412,6 @@ do_update() {
   ok "Update complete — your data in .data/ was preserved."
 }
 
-do_agent() {
-  banner
-  section "Installing ${PANEL_NAME} node agent"
-  install_base_tools
-  install_node
-  fetch_source
-  cd "$INSTALL_DIR" || exit 1
-
-  local token="${ZK_PANEL_TOKEN:-}"
-  if [ -z "$token" ]; then
-    token=$(openssl rand -hex 24 2>/dev/null || echo "change-me-$(date +%s)")
-  fi
-
-  if command -v pm2 >/dev/null 2>&1; then
-    pm2 delete "$PM2_AGENT" >/dev/null 2>&1 || true
-    PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" ZK_AGENT_NAME="$(hostname)" \
-      pm2 start agent/agent.cjs --name "$PM2_AGENT" --update-env >/dev/null 2>&1
-    pm2 save >/dev/null 2>&1 || true
-    sleep 2
-    if port_is_listening "$AGENT_PORT"; then
-      ok "Agent running under PM2 on port ${AGENT_PORT}"
-    else
-      warn "Agent is not listening on ${AGENT_PORT} — check 'pm2 logs ${PM2_AGENT}'"
-    fi
-  else
-    (setsid nohup env PORT="$AGENT_PORT" ZK_PANEL_TOKEN="$token" node agent/agent.cjs > logs/agent.log 2>&1 < /dev/null &)
-    sleep 2
-    if port_is_listening "$AGENT_PORT"; then
-      ok "Agent started on port ${AGENT_PORT}"
-    else
-      fail "Agent did not start — check logs/agent.log"
-    fi
-  fi
-
-  say ""
-  say "   ${GRAY}Register this node in the panel:${NC}"
-  say "     ${WHITE}IP${NC}     $(detect_ip)"
-  say "     ${WHITE}Port${NC}   ${AGENT_PORT}"
-  say "     ${WHITE}Token${NC}  ${token}"
-  say ""
-  warn "Store the token securely — it authenticates the node against the panel."
-}
-
 do_createuser() {
   cd "${INSTALL_DIR}" >/dev/null 2>&1 || cd "$(dirname "$0")" || exit 1
   [ -f package.json ] || { fail "Run this from the panel directory."; exit 1; }
@@ -531,7 +487,7 @@ menu() {
     say "   ${CYAN}3${NC}  Create / reset administrator"
     say "   ${CYAN}4${NC}  Restart panel"
     say "   ${CYAN}5${NC}  Status"
-    say "   ${CYAN}6${NC}  Install node agent"
+    say "   ${CYAN}6${NC}  Node daemon (separate download)"
     say "   ${CYAN}7${NC}  Uninstall"
     say "   ${CYAN}0${NC}  Exit"
     say ""
@@ -542,7 +498,7 @@ menu() {
       3) do_createuser; read -r -p "  Press Enter to return…" _ ;;
       4) do_restart; read -r -p "  Press Enter to return…" _ ;;
       5) do_status; read -r -p "  Press Enter to return…" _ ;;
-      6) do_agent; read -r -p "  Press Enter to return…" _ ;;
+      6) bash "$0" agent ;;
       7) do_uninstall; read -r -p "  Press Enter to return…" _ ;;
       0) say "\n  ${GRAY}Bye — ${STUDIO}${NC}\n"; exit 0 ;;
       *) warn "Invalid choice" ;;
@@ -550,11 +506,29 @@ menu() {
   done
 }
 
+# Accept both `install.sh agent` and the documented `install.sh --agent` form,
+# plus -h/--help. Flags used to fall through to "Unknown action", so the exact
+# command the panel hands out was rejected.
 ACTION="${1:-menu}"
+ACTION="${ACTION#--}"
 case "$ACTION" in
+  -h|help|-help)
+    sed -n '6,16p' "$0" | sed 's/^#  \{0,1\}//'
+    exit 0
+    ;;
+  # The node daemon ships as its own zip (see daemon/ and npm run build:daemon),
+  # so this script no longer installs it.
+  agent)
+    say ""
+    say "  ${AMBER}!${NC} The node daemon is a separate download now."
+    say "  ${GRAY}In the panel:${NC} Admin → Nodes → Add node, then download zkdaemon.zip"
+    say "  ${GRAY}On the node:${NC} unzip it, then  ${WHITE}sudo bash install.sh <token> <panel-url>${NC}"
+    say ""
+    exit 0
+    ;;
   install) do_install ;;
   update) do_update ;;
-  agent) do_agent ;;
+
   createuser) do_createuser ;;
   restart) do_restart ;;
   status) do_status ;;

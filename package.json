@@ -3,19 +3,20 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "ZK-MC3-PANEL — A modern Minecraft server hosting panel by ZK-STUDIO",
-  "author": "ZK-STUDIO — MD Ziyan Hossain",
+  "description": "ZK-MC3-PANEL \u2014 A modern Minecraft server hosting panel by ZK-STUDIO",
+  "author": "ZK-STUDIO \u2014 MD Ziyan Hossain",
   "license": "MIT",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && npm run build:daemon",
     "start": "node dist/server.cjs",
     "createuser": "tsx scripts/createuser.ts",
     "typecheck": "tsc --noEmit",
     "check:shell": "bash scripts/check-shell.sh",
     "clean": "rm -rf dist",
     "qa:render": "npm run build && node qa-render.mjs",
-    "qa:password": "node qa-password.mjs"
+    "qa:password": "node qa-password.mjs",
+    "build:daemon": "node scripts/build-daemon.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

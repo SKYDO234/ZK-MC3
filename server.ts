@@ -1,6 +1,7 @@
 import "dotenv/config";
 import "./src/server/services/panellog-install";
 import { Server as SocketServer } from "socket.io";
+import { attachDaemonGateway } from "./src/server/services/daemon";
 import express from "express";
 import path from "path";
 import cors from "cors";
@@ -79,6 +80,11 @@ io.on("connection", (socket) => {
   socket.on("stats:subscribe", () => socket.join("stats"));
 });
 
+// ---------------------------------------------------------------------------
+// Node daemon gateway — the daemon dials in over /daemon and stays connected.
+// ---------------------------------------------------------------------------
+attachDaemonGateway(io);
+
 // Fan out runtime events to subscribers
 panelEvents.on("log", ({ serverId, chunk }) => {
   io.to(`server:${serverId}`).emit("server:log", { serverId, chunk });
@@ -122,6 +128,30 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/system", systemRoutes);
 
 app.get("/api/settings", async (_req, res) => res.json(await publicSettings()));
+
+// ---------------------------------------------------------------------------
+// Daemon distribution — the zip is served by the panel so a node always runs a
+// daemon built for this exact panel version.
+// ---------------------------------------------------------------------------
+app.get("/downloads/zkdaemon.zip", (req, res) => {
+  const file = path.join(process.cwd(), "dist", "downloads", "zkdaemon.zip");
+  if (!fs.existsSync(file)) {
+    return res
+      .status(404)
+      .type("text/plain")
+      .send("The daemon package has not been built. Run `npm run build:daemon`.");
+  }
+  res.download(file, "zkdaemon.zip");
+});
+
+app.get("/api/daemon/version", (_req, res) => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "daemon", "package.json"), "utf8"));
+    res.json({ version: pkg.version });
+  } catch {
+    res.json({ version: "unknown" });
+  }
+});
 
 app.get("/api/health", async (_req, res) => {
   res.json({

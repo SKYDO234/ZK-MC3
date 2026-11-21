@@ -1,0 +1,18 @@
+{
+  "name": "zkdaemon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ZK-MC3-PANEL node daemon — runs game servers on a remote machine",
+  "license": "MIT",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1",
+    "fs-extra": "^11.2.0"
+  }
+}
