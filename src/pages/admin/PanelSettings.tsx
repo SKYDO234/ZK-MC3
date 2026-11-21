@@ -23,6 +23,9 @@ import {
   Puzzle,
   ExternalLink,
   Info,
+  MonitorPlay,
+  DownloadCloud,
+  Cpu,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import { Card, CardHeader, Button, Field, Tabs, Switch, Badge, PageSkeleton, Modal } from "../../components/ui";
@@ -40,6 +43,7 @@ const TABS = [
   { id: "features", label: "Features", icon: <Puzzle size={13} /> },
   { id: "limits", label: "Resource Limits", icon: <SlidersHorizontal size={13} /> },
   { id: "billing", label: "Billing", icon: <CreditCard size={13} /> },
+  { id: "virtualmachines", label: "Virtual Machines", icon: <MonitorPlay size={13} /> },
   { id: "system", label: "System", icon: <Server size={13} /> },
 ];
 
@@ -674,6 +678,106 @@ GET    /api/admin/dashboard      Admin metrics`}
                     {form.currency} {(4 * form.pricePerGbRam + 4 * form.pricePerCpuCore + 20 * form.pricePerGbDisk).toFixed(2)}
                   </span>
                 </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {tab === "virtualmachines" && (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Card>
+              <CardHeader
+                title="QEMU virtual machines"
+                subtitle="Real VMs on Ubuntu Server cloud images"
+                icon={<MonitorPlay size={16} />}
+              />
+              <div className="mt-4 space-y-3">
+                <p className="text-[0.74rem] leading-relaxed text-zinc-400">
+                  Each guest boots its own kernel with its own disk, memory and network stack — genuine
+                  virtualisation, not a container. Install the manager on the host, then create and run VMs
+                  from a terminal.
+                </p>
+
+                <div className="rounded-xl border border-white/[0.07] bg-black/25 p-3">
+                  <div className="flex items-center gap-1.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+                    <DownloadCloud size={10} /> install
+                  </div>
+                  <pre className="mt-1.5 overflow-x-auto font-mono text-[0.68rem] leading-relaxed text-zinc-300">
+{`wget -O zkvm.tar.gz ${typeof window !== "undefined" ? window.location.origin : ""}/downloads/zkvm.tar.gz
+tar -xzf zkvm.tar.gz
+sudo bash qemu/setup.sh`}
+                  </pre>
+                </div>
+
+                <div className="rounded-xl border border-white/[0.07] bg-black/25 p-3">
+                  <div className="flex items-center gap-1.5 text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+                    <Cpu size={10} /> create &amp; run
+                  </div>
+                  <pre className="mt-1.5 overflow-x-auto font-mono text-[0.68rem] leading-relaxed text-zinc-300">
+{`sudo zkvm doctor
+sudo zkvm create --name dev --ram 2048 --disk 20
+sudo zkvm start dev
+sudo zkvm console dev`}
+                  </pre>
+                </div>
+
+                <a
+                  href="/downloads/zkvm.tar.gz"
+                  className="zk-btn zk-btn-primary inline-flex w-full !justify-center"
+                  download
+                >
+                  <DownloadCloud size={13} /> Download zkvm.tar.gz
+                </a>
+              </div>
+            </Card>
+
+            <Card>
+              <CardHeader title="What to expect" subtitle="Limits the installer will report" icon={<Info size={16} />} />
+              <ul className="mt-4 space-y-2.5 text-[0.72rem] leading-relaxed text-zinc-400">
+                <li className="flex gap-2">
+                  <span className="text-brand-400">·</span>
+                  <span>
+                    <span className="text-zinc-200">Acceleration is automatic.</span> With{" "}
+                    <span className="font-mono text-zinc-300">/dev/kvm</span> guests run near-native; without it
+                    the manager falls back to TCG software emulation, roughly 10–30× slower.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-brand-400">·</span>
+                  <span>
+                    <span className="text-zinc-200">Codespaces has no KVM.</span> Nested virtualisation is not
+                    exposed, so VMs work but boot in minutes. Expected, not a fault.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-brand-400">·</span>
+                  <span>
+                    <span className="text-zinc-200">Inbound access is forwarded only.</span> SSH lands on{" "}
+                    <span className="font-mono text-zinc-300">127.0.0.1:2222</span>. To reach it from your own
+                    machine, forward that port in the Ports tab.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-brand-400">·</span>
+                  <span>
+                    <span className="text-zinc-200">No bridged networking.</span> TAP/bridge needs{" "}
+                    <span className="font-mono text-zinc-300">NET_ADMIN</span>, which Codespaces does not grant.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-brand-400">·</span>
+                  <span>
+                    <span className="text-zinc-200">Images are official.</span> Ubuntu 20.04 / 22.04 / 24.04 /
+                    26.04 cloud images from cloud-images.ubuntu.com, verified against Canonical's SHA256SUMS.
+                  </span>
+                </li>
+              </ul>
+              <div className="mt-4 flex items-start gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2.5">
+                <AlertTriangle size={11} className="mt-0.5 flex-none text-amber-400" />
+                <p className="text-[0.66rem] leading-relaxed text-amber-200/90">
+                  Run the installer as root on the host, not inside the panel. It installs QEMU system-wide and
+                  needs write access to <span className="font-mono">/var/lib</span>.
+                </p>
               </div>
             </Card>
           </div>

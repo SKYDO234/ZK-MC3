@@ -1,0 +1,627 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  zkvm · QEMU VM manager for ZK-MC3-PANEL
+# =============================================================================
+#  Real, hardware-virtualised (or software-emulated) virtual machines using
+#  Ubuntu Server cloud images and cloud-init. Unlike a container or a PRoot
+#  userspace, a QEMU guest runs its own kernel: it is a genuine VM.
+#
+#  Quick start
+#     sudo bash setup.sh                 # installs everything, then
+#     sudo zkvm create --name dev --ram 2048
+#     sudo zkvm start dev
+#     sudo zkvm console dev              # Ctrl-A X to leave
+#
+#  Every command is safe to re-run; nothing is destructive without --yes.
+# =============================================================================
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+. "${HERE}/lib.sh"
+# shellcheck source=images.sh
+. "${HERE}/images.sh"
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+zkvm_usage() {
+  cat <<'EOF'
+
+  ZK-MC3 · QEMU VM manager
+
+  USAGE
+    zkvm <command> [options]
+
+  VM LIFECYCLE
+    create [options]        Create a VM from an Ubuntu cloud image
+    start <name>            Boot a VM (KVM if available, else TCG)
+    stop <name>             Ask the guest to power off, then terminate
+    restart <name>          stop + start
+    delete <name>           Delete a VM and its disk (needs --yes)
+    console <name>          Attach to the serial console (Ctrl-A X to exit)
+
+  INSPECTION
+    status [name]           Table of VMs, or details for one
+    doctor                  Environment check: KVM, qemu, network, disk space
+    images                  List downloadable Ubuntu cloud images
+    download <series>       Download an official cloud image (20.04/22.04/24.04)
+
+  CREATE OPTIONS
+    --name <name>           VM name (letters, digits, dash; default vm1)
+    --ram <MB>              Memory (default 2048)
+    --vcpu <n>              Virtual CPUs (default 2)
+    --disk <GB>             Disk size (default 20)
+    --series <ver>          Ubuntu LTS (default 22.04)
+    --image <path>          Use a specific cloud image instead of downloading
+    --user <name>           cloud-init user (default ubuntu)
+    --password <pw>         Password for that user (default: generated)
+    --ssh-key <path>        Public key to authorise (default: ~/.ssh/id_*.pub)
+    --hostname <name>       Guest hostname (default: the VM name)
+    --yes                   Do not ask for confirmation
+
+  ENVIRONMENT
+    ZKVM_STATE_DIR          default /var/lib/zkvm
+    ZKVM_IMAGE_DIR          default /var/lib/vm-images
+    ZKVM_SSH_PORT_BASE      default 2222
+
+  The manager is honest about limitations: `zkvm doctor` explains exactly what
+  will not work on this host (KVM inside a Codespace, inbound networking,
+  disk space) rather than failing later.
+
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# doctor — the environment report
+# ---------------------------------------------------------------------------
+
+zkvm_doctor() {
+  local fail=0
+
+  zkvm_step "Host"
+  printf '  %-22s %s\n' "Platform"      "$(uname -s) $(uname -r) $(uname -m)"
+  printf '  %-22s %s\n' "This is a Codespace" "$(zkvm_is_codespace && echo yes || echo no)"
+  printf '  %-22s %s\n' "Running as root" "$(zkvm_is_root && echo yes || echo no)"
+  printf '  %-22s %s\n' "State directory" "$ZKVM_STATE_DIR"
+  printf '  %-22s %s\n' "Image directory" "$ZKVM_IMAGE_DIR"
+
+  zkvm_step "Virtualisation"
+  if zkvm_kvm_usable; then
+    zkvm_ok "KVM is available — guests run at native speed."
+  else
+    zkvm_warn "KVM unavailable — guests run under TCG software emulation."
+    printf '  %s\n' "$(zkvm_accel_reason | fold -s -w 74 | sed 's/^/    /')"
+    printf '  %s\n' "Expect roughly 10–30× slower than native. Fine for testing software;"
+    printf '  %s\n' "not for anything latency-sensitive or CPU-heavy (compiling, databases)."
+  fi
+  printf '  %-22s %s\n' "Acceleration" "$(zkvm_accel)"
+
+  zkvm_step "Required tools"
+  local tool label
+  for tool in qemu-img wget curl ssh-keygen openssl genisoimage; do
+    label="$tool"
+    if zkvm_has "$tool"; then
+      zkvm_ok "$label"
+    else
+      # genisoimage has fallbacks; the rest are mandatory.
+      if [ "$tool" = "genisoimage" ]; then
+        if zkvm_has mkisofs || zkvm_has xorriso; then
+          zkvm_ok "$label (fallback available)"
+        else
+          zkvm_err "$label missing — cloud-init seed cannot be built"
+          fail=1
+        fi
+      else
+        zkvm_err "$label missing — run: sudo bash setup.sh"
+        fail=1
+      fi
+    fi
+  done
+  if zkvm_has "$(zkvm_qemu_binary)"; then
+    zkvm_ok "$(zkvm_qemu_binary) ($("$(zkvm_qemu_binary)" --version 2>/dev/null | head -n1))"
+  else
+    zkvm_err "$(zkvm_qemu_binary) missing — run: sudo bash setup.sh"
+    fail=1
+  fi
+
+  zkvm_step "Networking"
+  printf '  %-22s %s\n' "User-mode (SLIRP)" "available — outbound works, inbound is via hostfwd only"
+  if zkvm_is_codespace; then
+    printf '\n  %s\n' "${ZK_C_YELLOW}Codespaces networking limits:${ZK_C_RESET}"
+    printf '  %s\n' "  · Each VM's SSH is forwarded to 127.0.0.1:22xx on this host. That port is"
+    printf '  %s\n' "    only reachable from inside the Codespace until you forward it:"
+    printf '  %s\n' "      Ports tab → Forward a Port → 2222 → Visibility: Private"
+    printf '  %s\n' "  · A guest HTTP server needs its own hostfwd (--http-port on create) and the"
+    printf '  %s\n' "    same Ports-tab step, otherwise nothing outside can reach it."
+    printf '  %s\n' "  · Guest MAC/IP are NATed by QEMU; the guest cannot be a peer on your LAN."
+    printf '  %s\n' "  · No bridge/tap without NET_ADMIN — bridged networking is not offered."
+  fi
+
+  zkvm_step "Disk"
+  local avail
+  avail="$(df -Pk "${ZKVM_IMAGE_DIR%/*}" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)"
+  if [ -n "$avail" ] && [ "$avail" -gt 0 ]; then
+    printf '  %-22s %s\n' "Free space" "$(zkvm_human_size $((avail * 1024)))"
+    if [ "$avail" -lt $((8 * 1024 * 1024)) ]; then
+      zkvm_warn "Less than 8 GB free — a base image (~600 MB) plus VM disks will not fit."
+    fi
+  else
+    printf '  %-22s %s\n' "Free space" "unknown"
+  fi
+  printf '  %s\n' "  Cloud image ≈ 600 MB each; VM disk is sparse (grows with use)."
+
+  if [ "$fail" -eq 0 ]; then
+    zkvm_step "Verdict"
+    zkvm_ok "This host can run VMs. Acceleration: $(zkvm_accel)."
+  else
+    zkvm_step "Verdict"
+    zkvm_err "Missing dependencies. Run:  sudo bash $(basename "$HERE")/setup.sh"
+  fi
+  return "$fail"
+}
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+zkvm_create() {
+  local name="vm1" ram=2048 vcpu=2 disk=20 series="22.04"
+  local image="" user="ubuntu" password="" ssh_key="" hostname="" assume_yes=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)     name="${2:?--name needs a value}"; shift 2 ;;
+      --ram)      ram="${2:?--ram needs a value}"; shift 2 ;;
+      --vcpu)     vcpu="${2:?--vcpu needs a value}"; shift 2 ;;
+      --disk)     disk="${2:?--disk needs a value}"; shift 2 ;;
+      --series)   series="${2:?--series needs a value}"; shift 2 ;;
+      --image)    image="${2:?--image needs a path}"; shift 2 ;;
+      --user)     user="${2:?--user needs a value}"; shift 2 ;;
+      --password) password="${2:?--password needs a value}"; shift 2 ;;
+      --ssh-key)  ssh_key="${2:?--ssh-key needs a path}"; shift 2 ;;
+      --hostname) hostname="${2:?--hostname needs a value}"; shift 2 ;;
+      --yes | -y) assume_yes=1; shift ;;
+      *) zkvm_err "Unknown option for create: $1"; return 2 ;;
+    esac
+  done
+
+  # ---- validation -------------------------------------------------------
+  if ! printf '%s' "$name" | grep -qE '^[a-z0-9][a-z0-9-]{0,30}$'; then
+    zkvm_err "Invalid name '${name}': use lower-case letters, digits and dashes (max 31)."
+    return 2
+  fi
+  if zkvm_vm_exists "$name"; then
+    zkvm_err "A VM named '${name}' already exists. Pick another name or delete it first."
+    return 2
+  fi
+  if ! printf '%s' "$ram" | grep -qE '^[0-9]+$' || [ "$ram" -lt 512 ]; then
+    zkvm_err "--ram must be at least 512 MB."
+    return 2
+  fi
+  if ! printf '%s' "$vcpu" | grep -qE '^[1-9][0-9]*$'; then
+    zkvm_err "--vcpu must be a positive integer."
+    return 2
+  fi
+  if ! printf '%s' "$disk" | grep -qE '^[0-9]+$' || [ "$disk" -lt 5 ]; then
+    zkvm_err "--disk must be at least 5 GB (the base image needs room)."
+    return 2
+  fi
+  if ! zkvm_image_supported "$series"; then
+    zkvm_err "Unsupported series '${series}'."
+    zkvm_err "Choose one of: ${ZKVM_IMAGE_SERIES[*]}"
+    return 2
+  fi
+
+  # ---- base image -------------------------------------------------------
+  if [ -z "$image" ]; then
+    image="${ZKVM_IMAGE_DIR}/ubuntu-${series}-cloudimg-$(zkvm_host_arch).img"
+    if [ ! -f "$image" ]; then
+      if ! zkvm_image_available "$series"; then
+        # Two very different causes, and the operator needs to know which.
+        zkvm_err "Cannot fetch the Ubuntu ${series} image."
+        zkvm_err "Either Canonical has not published this series, or this host cannot reach"
+        zkvm_err "cloud-images.ubuntu.com. Check with:  zkvm images"
+        return 1
+      fi
+      zkvm_info "Base image not present; downloading Ubuntu ${series} first."
+      zkvm_download_image "$series" || return 1
+    fi
+  elif [ ! -f "$image" ]; then
+    zkvm_err "Image not found: ${image}"
+    return 1
+  fi
+
+  local dir="${ZKVM_VM_DIR}/${name}"
+  mkdir -p "$dir" || { zkvm_err "Cannot create ${dir}"; return 1; }
+
+  # ---- resources summary ------------------------------------------------
+  zkvm_step "Creating VM '${name}'"
+  printf '  %-16s %s\n' "Base image" "$image ($(zkvm_human_size "$(stat -c%s "$image")"))"
+  printf '  %-16s %s\n' "OS"         "$(zkvm_image_name "$series")"
+  printf '  %-16s %s\n' "Memory"     "${ram} MB"
+  printf '  %-16s %s\n' "vCPUs"      "$vcpu"
+  printf '  %-16s %s\n' "Disk"       "${disk} GB (sparse)"
+  printf '  %-16s %s\n' "Acceleration" "$(zkvm_accel) ($( [ "$(zkvm_accel)" = tcg ] && echo 'software, slow' || echo 'hardware'))"
+  if [ "$assume_yes" -ne 1 ]; then
+    printf '\n  Proceed? [y/N] '
+    local reply=""
+    read -r reply || true
+    case "$reply" in y | Y | yes | YES) ;; *) zkvm_info "Cancelled."; rmdir "$dir" 2>/dev/null || true; return 1 ;; esac
+  fi
+
+  # ---- writable overlay -------------------------------------------------
+  # The base image is never written to: every VM gets a qcow2 overlay, so many
+  # VMs share one 600 MB download and deleting a VM cannot corrupt the base.
+  zkvm_info "Creating ${disk} GB disk from the base image (copy-on-write) ..."
+  if ! qemu-img create -f qcow2 -F qcow2 -b "$image" "$dir/disk.qcow2" "${disk}G" >/dev/null; then
+    zkvm_err "qemu-img failed to create the disk."
+    return 1
+  fi
+
+  # ---- cloud-init seed --------------------------------------------------
+  password="${password:-$(zkvm_generate_password)}"
+  zkvm_build_seed "$dir" "$name" "${hostname:-$name}" "$user" "$password" "$ssh_key" || return 1
+
+  # ---- registry ---------------------------------------------------------
+  local ssh_port
+  ssh_port="$(zkvm_next_ssh_port)" || ssh_port=2222
+  cat >"$dir/vm.conf" <<CONF
+# ZK-MC3 QEMU VM — written by \`zkvm create\` on $(date -u +%Y-%m-%dT%H:%M:%SZ)
+VM_NAME=${name}
+VM_RAM=${ram}
+VM_VCPU=${vcpu}
+VM_DISK=${disk}
+VM_SERIES=${series}
+VM_IMAGE=${image}
+VM_USER=${user}
+VM_HOSTNAME=${hostname:-$name}
+VM_SSH_PORT=${ssh_port}
+VM_MAC=52:54:00:$(printf '%02x' $((RANDOM % 256))):$(printf '%02x' $((RANDOM % 256))):$(printf '%02x' $((RANDOM % 256)))
+VM_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+CONF
+
+  zkvm_step "VM created"
+  zkvm_ok "Name       ${name}"
+  zkvm_ok "User       ${user}"
+  zkvm_ok "Password   ${password}"
+  zkvm_ok "SSH        ssh ${user}@127.0.0.1 -p ${ssh_port}"
+  zkvm_info "Change the password after first login: passwd"
+  zkvm_info "Boot it with:  sudo zkvm start ${name} && sudo zkvm console ${name}"
+}
+
+zkvm_generate_password() {
+  # 16 chars, unambiguous alphabet (no l/1/O/0) so it can be copied by eye.
+  LC_ALL=C tr -dc 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789' \
+    </dev/urandom | head -c 16
+}
+
+# ---------------------------------------------------------------------------
+# cloud-init seed
+# ---------------------------------------------------------------------------
+
+zkvm_build_seed() {
+  local dir="$1" name="$2" hostname="$3" user="$4" password="$5" ssh_key="$6"
+  local seed_dir="${dir}/seed"
+  mkdir -p "$seed_dir"
+
+  # Discover a public key when one was not supplied. Without either a key or a
+  # password the guest would be unreachable, so this is not optional.
+  if [ -z "$ssh_key" ]; then
+    local candidate
+    for candidate in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
+      [ -f "$candidate" ] && { ssh_key="$candidate"; break; }
+    done
+  fi
+
+  # user-data
+  {
+    printf '#cloud-config\n'
+    printf '# Generated by zkvm for %s\n' "$name"
+    printf 'hostname: %s\n' "$hostname"
+    printf 'manage_etc_hosts: true\n'
+    printf 'users:\n'
+    printf '  - name: %s\n' "$user"
+    printf '    sudo: ALL=(ALL) NOPASSWD:ALL\n'
+    printf '    shell: /bin/bash\n'
+    printf '    lock_passwd: false\n'
+    printf '    groups: [adm, sudo]\n'
+    if [ -n "$ssh_key" ] && [ -f "$ssh_key" ]; then
+      printf '    ssh_authorized_keys:\n'
+      sed 's/^/      - /' "$ssh_key"
+    fi
+    printf 'chpasswd:\n'
+    printf '  expire: false\n'
+    printf '  list: |\n'
+    printf '    %s:%s\n' "$user" "$password"
+    printf 'ssh_pwauth: true\n'
+    printf 'package_update: false\n'
+    # The serial console is how `zkvm console` works; without this the guest
+    # prints nothing on ttyS0 and the console looks dead.
+    printf 'runcmd:\n'
+    printf '  - [ systemctl, enable, --now, serial-getty@ttyS0.service ]\n'
+    printf '  - [ sh, -c, "echo \\"zkvm: %s ready — login as %s\\" > /etc/motd" ]\n' "$name" "$user"
+  } >"$seed_dir/user-data"
+
+  # meta-data: instance-id must be unique per VM or cloud-init skips the seed
+  # on a re-created disk with the same name.
+  {
+    printf 'instance-id: zkvm-%s-%s\n' "$name" "$(date -u +%Y%m%d%H%M%S)"
+    printf 'local-hostname: %s\n' "$hostname"
+  } >"$seed_dir/meta-data"
+
+  : >"$seed_dir/vendor-data"
+
+  # ISO label must be exactly CIDATA for NoCloud to find it.
+  local iso="${dir}/seed.iso"
+  rm -f "$iso"
+  if zkvm_has genisoimage; then
+    genisoimage -quiet -output "$iso" -volid CIDATA -joliet -rock \
+      "$seed_dir/user-data" "$seed_dir/meta-data" "$seed_dir/vendor-data" || {
+      zkvm_err "genisoimage failed"; return 1; }
+  elif zkvm_has mkisofs; then
+    mkisofs -quiet -output "$iso" -volid CIDATA -joliet -rock \
+      "$seed_dir/user-data" "$seed_dir/meta-data" "$seed_dir/vendor-data" || {
+      zkvm_err "mkisofs failed"; return 1; }
+  elif zkvm_has xorriso; then
+    xorriso -as mkisofs -quiet -output "$iso" -volid CIDATA -joliet -rock \
+      "$seed_dir/user-data" "$seed_dir/meta-data" "$seed_dir/vendor-data" || {
+      zkvm_err "xorriso failed"; return 1; }
+  else
+    zkvm_err "No ISO builder (genisoimage/mkisofs/xorriso). Run: sudo bash setup.sh"
+    return 1
+  fi
+  zkvm_ok "cloud-init seed built (${iso})"
+}
+
+# ---------------------------------------------------------------------------
+# start / stop / restart / console
+# ---------------------------------------------------------------------------
+
+zkvm_start() {
+  zkvm_start_locked "$@"
+  local rc=$?
+  zkvm_vm_unlock
+  return $rc
+}
+
+zkvm_start_locked() {
+  local name="${1:?usage: zkvm start <name>}"
+  zkvm_vm_load "$name" || return 1
+  zkvm_vm_lock "$name" || return 1
+
+  if zkvm_vm_running "$name"; then
+    zkvm_warn "VM '${name}' is already running (pid $(zkvm_vm_pid "$name"))."
+    return 0
+  fi
+
+  local dir="${ZKVM_VM_DIR}/${name}"
+  local qemu accel
+  qemu="$(zkvm_qemu_binary)"
+  accel="$(zkvm_accel)"
+
+  if ! zkvm_has "$qemu"; then
+    zkvm_err "$qemu is not installed. Run: sudo bash ${HERE}/setup.sh"
+    return 1
+  fi
+
+  local -a args=(
+    -name "zkvm-${VM_NAME}"
+    -m "${VM_RAM}"
+    -smp "${VM_VCPU}"
+    -machine "q35,accel=${accel}"
+    -cpu "$( [ "$accel" = kvm ] && echo host || echo max )"
+    -drive "file=${dir}/disk.qcow2,if=virtio,format=qcow2"
+    -drive "file=${dir}/seed.iso,if=virtio,media=cdrom,readonly=on"
+    -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:${VM_SSH_PORT}-:22"
+    -device "virtio-net-pci,netdev=net0,mac=${VM_MAC}"
+    -nographic
+    -serial mon:stdio
+    -pidfile "${dir}/vm.pid"
+    -D "${ZKVM_LOG_DIR}/${name}.qemu.log"
+  )
+
+  mkdir -p "$ZKVM_LOG_DIR"
+
+  zkvm_info "Booting '${name}' — ${VM_RAM} MB, ${VM_VCPU} vCPU, accel=${accel}"
+  if [ "$accel" = tcg ]; then
+    zkvm_warn "Running under TCG software emulation — boot may take several minutes."
+  fi
+
+  # QEMU detaches into the background; stdio goes to the console log so the
+  # manager's own output stays clean.
+  # Redirect all three descriptors. Inheriting stdin would make the guest read
+  # the operator's keystrokes, and an inherited stdout keeps the caller's pipe
+  # open — which hangs anything doing `zkvm start | tee` until the VM dies.
+  nohup "$qemu" "${args[@]}" < /dev/null >"${dir}/console.log" 2>&1 &
+  local qemu_pid=$!
+  disown "$qemu_pid" 2>/dev/null || true
+
+  # Write the pid ourselves rather than relying on qemu's -pidfile: if that file
+  # is missing (older builds, permission problems) the VM would read as stopped
+  # forever. -pidfile is still passed so `qemu` tooling and ps agree with us.
+  printf '%s\n' "$qemu_pid" >"${dir}/vm.pid"
+
+  # Wait briefly and confirm the process survived; a bad -machine or a missing
+  # image dies in under a second with a message we should surface.
+  sleep 2
+  if ! zkvm_vm_running "$name"; then
+    zkvm_err "qemu exited immediately. Last lines:"
+    tail -n 15 "${dir}/console.log" 2>/dev/null | sed 's/^/    /' >&2
+    return 1
+  fi
+
+  zkvm_ok "VM '${name}' is running (pid $(zkvm_vm_pid "$name"))."
+  zkvm_info "Serial console:  sudo zkvm console ${name}"
+  zkvm_info "SSH:             ssh ${VM_USER}@127.0.0.1 -p ${VM_SSH_PORT}   (after boot, ~30-180s)"
+}
+
+zkvm_stop() {
+  local name="${1:?usage: zkvm stop <name>}"
+  zkvm_vm_load "$name" || return 1
+
+  if ! zkvm_vm_running "$name"; then
+    zkvm_warn "VM '${name}' is not running."
+    return 0
+  fi
+
+  local pid
+  pid="$(zkvm_vm_pid "$name")"
+  zkvm_info "Stopping '${name}' (pid ${pid}) ..."
+
+  # SIGTERM makes qemu perform an ACPI shutdown request, which the guest's
+  # systemd honours as a clean power-off. Give it time to flush the filesystem.
+  kill -TERM "$pid" 2>/dev/null || true
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 60 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  if kill -0 "$pid" 2>/dev/null; then
+    zkvm_warn "Guest did not power off in 60s; terminating (unsaved data may be lost)."
+    kill -KILL "$pid" 2>/dev/null || true
+    sleep 1
+  fi
+
+  rm -f "${ZKVM_VM_DIR}/${name}/vm.pid"
+  zkvm_ok "VM '${name}' stopped."
+}
+
+zkvm_restart() {
+  local name="${1:?usage: zkvm restart <name>}"
+  zkvm_vm_load "$name" || return 1
+  zkvm_stop "$name" || return 1
+  sleep 1
+  zkvm_start "$name"
+}
+
+zkvm_console() {
+  local name="${1:?usage: zkvm console <name>}"
+  zkvm_vm_load "$name" || return 1
+
+  if ! zkvm_vm_running "$name"; then
+    zkvm_err "VM '${name}' is not running. Start it first: sudo zkvm start ${name}"
+    return 1
+  fi
+
+  # qemu was started with a mon:stdio serial, but its stdio went to the log.
+  # Attaching to a *running* qemu needs its monitor socket, which we do not
+  # expose; the reliable cross-version path is the console log plus SSH. Print
+  # what is happening rather than pretending to attach.
+  zkvm_warn "Attaching to a detached qemu is not supported."
+  zkvm_info "Live serial output:   tail -f ${ZKVM_VM_DIR}/${name}/console.log"
+  zkvm_info "Interactive shell:    ssh ${VM_USER}@127.0.0.1 -p ${VM_SSH_PORT}"
+  printf '\n'
+  printf '  %s\n' "Streaming the serial console now — press Ctrl-C to detach."
+  printf '  %s\n\n' "(The VM keeps running; this only stops the view.)"
+  tail -n 40 -f "${ZKVM_VM_DIR}/${name}/console.log"
+}
+
+# ---------------------------------------------------------------------------
+# delete / status
+# ---------------------------------------------------------------------------
+
+zkvm_delete() {
+  local name="" assume_yes=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes | -y) assume_yes=1; shift ;;
+      *) name="$1"; shift ;;
+    esac
+  done
+  [ -n "$name" ] || { zkvm_err "usage: zkvm delete <name> [--yes]"; return 2; }
+  zkvm_vm_load "$name" || return 1
+
+  if zkvm_vm_running "$name"; then
+    zkvm_stop "$name" || return 1
+  fi
+
+  local dir="${ZKVM_VM_DIR}/${name}"
+  local size
+  size="$(du -sh "$dir" 2>/dev/null | awk '{print $1}')"
+
+  if [ "$assume_yes" -ne 1 ]; then
+    printf '\n  Delete VM %s%s%s and its disk (%s)? This cannot be undone. [y/N] ' \
+      "$ZK_C_BOLD" "$name" "$ZK_C_RESET" "${size:-?}"
+    local reply=""
+    read -r reply || true
+    case "$reply" in y | Y | yes | YES) ;; *) zkvm_info "Cancelled."; return 1 ;; esac
+  fi
+
+  rm -rf "$dir"
+  zkvm_ok "VM '${name}' deleted."
+}
+
+zkvm_status() {
+  local only="${1:-}"
+
+  if [ -n "$only" ]; then
+    zkvm_vm_load "$only" || return 1
+    local state pid
+    state="$(zkvm_vm_state "$only")"
+    pid="$(zkvm_vm_pid "$only" 2>/dev/null || echo -)"
+    printf '\n  %s%s%s\n' "$ZK_C_BOLD" "$only" "$ZK_C_RESET"
+    printf '  %-16s %s\n' "State"        "$state"
+    printf '  %-16s %s\n' "PID"          "$pid"
+    printf '  %-16s %s\n' "OS"           "$(zkvm_image_name "$VM_SERIES")"
+    printf '  %-16s %s\n' "Memory"       "${VM_RAM} MB"
+    printf '  %-16s %s\n' "vCPUs"        "$VM_VCPU"
+    printf '  %-16s %s\n' "Disk"         "$(du -sh "${ZKVM_VM_DIR}/${only}/disk.qcow2" 2>/dev/null | awk '{print $1}') / ${VM_DISK} GB"
+    printf '  %-16s %s\n' "SSH"          "ssh ${VM_USER}@127.0.0.1 -p ${VM_SSH_PORT}"
+    printf '  %-16s %s\n' "Acceleration" "$(zkvm_accel)"
+    printf '\n'
+    return 0
+  fi
+
+  local names
+  names="$(zkvm_vm_names)"
+  if [ -z "$names" ]; then
+    zkvm_info "No VMs yet. Create one:  sudo zkvm create --name dev --ram 2048"
+    printf '  %s\n' "Environment check:  sudo zkvm doctor"
+    return 0
+  fi
+
+  printf '\n  %-16s %-10s %-24s %-8s %-8s %s\n' NAME STATE OS RAM vCPU SSH
+  printf '  %s\n' "--------------------------------------------------------------------------------"
+  local name state
+  for name in $names; do
+    zkvm_vm_load "$name" >/dev/null 2>&1 || continue
+    state="$(zkvm_vm_state "$name")"
+    printf '  %-16s %-10s %-24s %-8s %-8s %s\n' \
+      "$name" "$state" "$(zkvm_image_name "$VM_SERIES")" "${VM_RAM}M" "$VM_VCPU" "127.0.0.1:${VM_SSH_PORT}"
+  done
+  printf '\n  Acceleration: %s  ·  %s\n\n' "$(zkvm_accel)" "$(zkvm_accel_reason)"
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+main() {
+  local cmd="${1:-help}"
+  [ $# -gt 0 ] && shift
+
+  case "$cmd" in
+    create)   zkvm_create "$@" ;;
+    start)    zkvm_start "$@" ;;
+    stop)     zkvm_stop "$@" ;;
+    restart)  zkvm_restart "$@" ;;
+    delete | rm) zkvm_delete "$@" ;;
+    console)  zkvm_console "$@" ;;
+    status)   zkvm_status "$@" ;;
+    doctor)   zkvm_doctor ;;
+    images)   zkvm_list_images ;;
+    download) zkvm_download_image "${1:?usage: zkvm download <series>}" ;;
+    help | -h | --help) zkvm_usage ;;
+    version | --version) printf 'zkvm %s\n' "$ZKVM_VERSION" ;;
+    *)
+      zkvm_err "Unknown command: ${cmd}"
+      zkvm_usage
+      return 2
+      ;;
+  esac
+}
+
+main "$@"
