@@ -771,12 +771,6 @@ export const ServerView: React.FC = () => {
 
   useDocumentTitle(server ? `${server.name} · ZK-MC3-PANEL` : "Server · ZK-MC3-PANEL");
 
-  // Hooks must run before the early returns below. If tunnels get switched off
-  // while the Tunnel tab is open, fall back to the console rather than a blank pane.
-  useEffect(() => {
-    if (!playitEnabled && tab === "tunnel") setTab("console");
-  }, [playitEnabled, tab]);
-
   useEffect(() => {
     if (status) reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -841,7 +835,7 @@ export const ServerView: React.FC = () => {
     { id: "console", label: "Console", icon: <Terminal size={15} /> },
     { id: "settings", label: "Properties", icon: <FileText size={15} /> },
     { id: "files", label: "File Manager", icon: <FolderTree size={15} /> },
-    ...(playitEnabled ? [{ id: "tunnel", label: "Tunnel", icon: <Globe2 size={15} /> }] : []),
+    { id: "tunnel", label: "Tunnel", icon: <Globe2 size={15} /> },
     { id: "players", label: "Players", icon: <Users size={15} /> },
     { id: "plugins", label: "Plugins", icon: <Puzzle size={15} /> },
     { id: "backups", label: "Backups", icon: <Archive size={15} /> },

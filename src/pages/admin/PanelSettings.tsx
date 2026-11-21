@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Settings2,
   Palette,
@@ -20,6 +20,9 @@ import {
   Database,
   Megaphone,
   Wrench,
+  Puzzle,
+  ExternalLink,
+  Info,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import { Card, CardHeader, Button, Field, Tabs, Switch, Badge, PageSkeleton, Modal } from "../../components/ui";
@@ -34,6 +37,7 @@ const TABS = [
   { id: "email", label: "Email / SMTP", icon: <Mail size={13} /> },
   { id: "api", label: "API", icon: <KeyRound size={13} /> },
   { id: "notifications", label: "Notifications", icon: <Bell size={13} /> },
+  { id: "features", label: "Features", icon: <Puzzle size={13} /> },
   { id: "limits", label: "Resource Limits", icon: <SlidersHorizontal size={13} /> },
   { id: "billing", label: "Billing", icon: <CreditCard size={13} /> },
   { id: "system", label: "System", icon: <Server size={13} /> },
@@ -44,9 +48,17 @@ export const PanelSettings: React.FC = () => {
   const { data, loading, reload } = useApi<any>("/admin/settings");
   const { success, error } = useToast();
   const { refresh: refreshPublic } = useSettings();
-  const [tab, setTab] = useState("branding");
+  // Honour ?tab=… so links from elsewhere in the panel land on the right section
+  // instead of dumping the operator at the top of Branding.
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const [tab, setTab] = useState(
+    requestedTab && TABS.some((t) => t.id === requestedTab) ? requestedTab : "branding"
+  );
   const [form, setForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
+  // The persisted value, so the Features tab can distinguish saved from unsaved.
+  const [savedPlayit, setSavedPlayit] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [broadcast, setBroadcast] = useState({ title: "", message: "", type: "info", audience: "all" });
@@ -54,6 +66,7 @@ export const PanelSettings: React.FC = () => {
 
   useEffect(() => {
     if (data) setForm(data);
+    if (data) setSavedPlayit(Boolean(data.enablePlayit));
   }, [data]);
 
   const set = (key: string, value: any) => setForm((f: any) => ({ ...f, [key]: value }));
@@ -64,6 +77,7 @@ export const PanelSettings: React.FC = () => {
       const payload = patch || form;
       const updated = await api("/admin/settings", { method: "PUT", body: payload });
       setForm(updated);
+      setSavedPlayit(Boolean(updated.enablePlayit));
       await refreshPublic();
       success("Settings saved", "Changes are live across the panel.");
     } catch (err: any) {
@@ -459,6 +473,93 @@ GET    /api/admin/dashboard      Admin metrics`}
           </div>
         )}
 
+        {tab === "features" && (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Card>
+              <CardHeader
+                title="Playit.gg tunnels"
+                subtitle="Expose a server's port to the internet without port-forwarding"
+                icon={<Puzzle size={16} />}
+              />
+              <div className="mt-5 space-y-3">
+                <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
+                  <div>
+                    <p className="text-[0.82rem] font-medium text-zinc-200">Enable tunnels</p>
+                    <p className="text-[0.68rem] text-zinc-500">
+                      Adds a Tunnel tab to every server, with start / stop / restart and a claim link.
+                    </p>
+                  </div>
+                  <Switch checked={Boolean(form.enablePlayit)} onChange={(v) => set("enablePlayit", v)} />
+                </div>
+
+                {/* State of the switch you have actually saved — not the unsaved form. */}
+                <div className="flex items-center gap-2 rounded-xl border border-white/[0.07] bg-black/25 px-4 py-2.5">
+                  <span
+                    className={`h-1.5 w-1.5 flex-none rounded-full ${savedPlayit ? "bg-emerald-400" : "bg-zinc-600"}`}
+                  />
+                  <p className="text-[0.7rem] text-zinc-400">
+                    Currently <span className={savedPlayit ? "text-emerald-300" : "text-zinc-300"}>
+                      {savedPlayit ? "enabled" : "disabled"}
+                    </span>{" "}
+                    for the whole panel.
+                  </p>
+                  {!savedPlayit && Boolean(form.enablePlayit) && (
+                    <span className="ml-auto rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-amber-300">
+                      unsaved
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <Card>
+              <CardHeader title="How the Tunnel tab works" subtitle="Applies to every server once enabled" icon={<Globe size={16} />} />
+              <ol className="mt-4 space-y-2.5 text-[0.72rem] leading-relaxed text-zinc-400">
+                <li className="flex gap-2">
+                  <span className="font-mono text-brand-400">1.</span>
+                  <span>
+                    Open a server → <span className="text-zinc-200">Tunnel</span> tab. The tab only appears while
+                    tunnels are enabled above.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-mono text-brand-400">2.</span>
+                  <span>
+                    Press <span className="text-zinc-200">Start tunnel</span>. The panel downloads the official
+                    playit agent on the node and runs it beside the server.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-mono text-brand-400">3.</span>
+                  <span>
+                    Open the <span className="text-zinc-200">claim link</span> once to bind the agent to your
+                    playit.gg account. After that the address survives restarts.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-mono text-brand-400">4.</span>
+                  <span>Clients connect to the public address shown on that page — no port-forwarding.</span>
+                </li>
+              </ol>
+              <div className="mt-4 flex items-start gap-1.5 rounded-xl border border-white/[0.07] bg-black/25 px-3 py-2.5">
+                <Info size={11} className="mt-0.5 flex-none text-zinc-500" />
+                <p className="text-[0.66rem] leading-relaxed text-zinc-500">
+                  Tunnels need a running node with outbound internet access. If a start fails, the Tunnel tab shows
+                  the agent's own error output rather than a generic message.
+                </p>
+              </div>
+              <a
+                href="https://playit.gg"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-1 text-[0.68rem] text-brand-400 hover:text-brand-300"
+              >
+                playit.gg <ExternalLink size={10} />
+              </a>
+            </Card>
+          </div>
+        )}
+
         {tab === "limits" && (
           <div className="grid gap-5 lg:grid-cols-2">
             <Card>
@@ -483,15 +584,6 @@ GET    /api/admin/dashboard      Admin metrics`}
                   <p className="text-[0.68rem] text-zinc-500">Let clients deploy servers within limits</p>
                 </div>
                 <Switch checked={form.allowUserServerCreation} onChange={(v) => set("allowUserServerCreation", v)} />
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
-                <div>
-                  <p className="text-[0.82rem] font-medium text-zinc-200">Playit.gg tunnels</p>
-                  <p className="text-[0.68rem] text-zinc-500">
-                    Expose a server's port to the internet without port-forwarding. Adds a Tunnel tab to every server.
-                  </p>
-                </div>
-                <Switch checked={Boolean(form.enablePlayit)} onChange={(v) => set("enablePlayit", v)} />
               </div>
             </Card>
 

@@ -18,7 +18,9 @@ import {
   Info,
   Trash2,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 
 /**
@@ -91,6 +93,8 @@ const STATUS_UI: Record<
 
 export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({ serverId, enabled }) => {
   const { success, error: toastError } = useToast();
+  // Only an admin can act on the "disabled" notice, so only they get the link.
+  const { isAdmin } = useAuth();
   const [state, setState] = useState<TunnelState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"" | "start" | "stop" | "restart" | "reset">("");
@@ -170,9 +174,18 @@ export const PlayitTunnel: React.FC<{ serverId: string; enabled: boolean }> = ({
         <ShieldOff size={26} className="mx-auto mb-3 text-zinc-600" />
         <h3 className="font-display text-base font-bold text-zinc-200">Playit tunnels are disabled</h3>
         <p className="mx-auto mt-1.5 max-w-md text-[0.78rem] leading-relaxed text-zinc-500">
-          An administrator can switch them on under <span className="text-zinc-300">Panel Settings → Features</span>.
-          Once enabled, every server can expose its port through playit.gg without any router configuration.
+          An administrator can switch them on under{" "}
+          <span className="text-zinc-300">Panel Settings → Features → Playit.gg tunnels</span>. Once enabled, every
+          server gets a Tunnel tab and can expose its port through playit.gg without any router configuration.
         </p>
+        {isAdmin && (
+          <Link
+            to="/admin/settings?tab=features"
+            className="zk-btn zk-btn-primary mt-4 inline-flex !justify-center"
+          >
+            Open feature settings
+          </Link>
+        )}
       </div>
     );
   }
