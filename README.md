@@ -234,7 +234,8 @@ public address, runs the servers the panel gives it, and reconnects by itself
 after a reboot or a network drop. Everything ships inside the zip — no npm, no
 build step on the node.
 
-See [`daemon/README.md`](daemon/README.md) for the full guide.
+Step-by-step walkthrough: [`docs/ADDING-A-NODE.md`](docs/ADDING-A-NODE.md).
+Reference: [`daemon/README.md`](daemon/README.md).
 
 ### Nodes, in detail
 - Built-in local node reports real CPU/RAM/disk telemetry from this process.
