@@ -51,7 +51,7 @@ import { ToastProvider } from "./src/context/ToastContext";
 import { AuthProvider } from "./src/context/AuthContext";
 import { AppRoutes } from "./src/App";
 createRoot(document.getElementById("root")!).render(
-  <MemoryRouter initialEntries={[window.location.pathname]}>
+  <MemoryRouter initialEntries={[window.location.pathname + window.location.search]}>
     <SettingsProvider><ToastProvider><AuthProvider><AppRoutes /></AuthProvider></ToastProvider></SettingsProvider>
   </MemoryRouter>
 );`

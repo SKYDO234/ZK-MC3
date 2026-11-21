@@ -408,6 +408,34 @@ Minecraft software additionally needs a JDK on the host
 (`sudo apt install openjdk-21-jre-headless`). The installer attempts this automatically
 and the panel surfaces a clear warning if Java is missing.
 
+### 🐧 Linux VM servers
+
+`software: "VM"` deploys a **Linux userspace**, not a Minecraft server. The panel
+installs the [Hopingboyz VM Manager](https://github.com/habibasultanaziya-ship-it/Vms)
+image (a ~10 KB jar, pinned by commit **and SHA-256**) and runs it on the JVM:
+
+```
+java -Xms256M -Xmx512M -XX:+UseSerialGC -Dvm.image=debian-12 -jar server.jar --stdout
+```
+
+```bash
+curl -X POST http://localhost:31120/api/servers \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"Dev Box","software":"VM","version":"debian-12","ram":2048,"port":25571}'
+```
+
+`version` selects the guest: `ubuntu-24.04`, `ubuntu-22.04`, `debian-12`, `debian-13`.
+On first start the image downloads and extracts a rootfs (a few minutes, ~1 GB of
+disk), then drops you into its shell in the server **Console** — console input is the
+guest's stdin, so commands type straight through.
+
+**What it is not:** PRoot shares the host kernel. There is no KVM, no separate
+kernel and no real privilege boundary — the guest's "root" is faked. Treat anything
+run inside it as running on the host. Do not hand a VM to an untrusted tenant.
+
+It also needs `tar` on the node (the image extracts its rootfs with `tar -xpf`);
+the installer provisioning step warns if it is missing.
+
 ---
 
 ## 🖼 Screenshots

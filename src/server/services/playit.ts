@@ -18,8 +18,16 @@ import axios from "axios";
  * derived from the real process — never guessed.
  *
  * Notes on the agent CLI:
- *   playit -s --secret_path <file> --stdout  ... `-s` keeps it as a background
- *   service; `--stdout` makes it log to stdout so we can capture the claim URL.
+ *   playit --secret_path <file> --stdout  ... `--stdout` is the ONLY way to keep
+ *   the agent out of its interactive TUI, so its claim URL and address reach our
+ *   log capture. It must be passed exactly once: in the upstream CLI
+ *
+ *       .arg(arg!(-s --stdout "prints logs to stdout"))
+ *
+ *   `-s` is the short form of `--stdout`, not a "background service" switch.
+ *   Passing `-s … --stdout` makes clap fail with
+ *       "the argument '--stdout' cannot be used multiple times"
+ *   and the agent exits with code 2 before it ever reaches the network.
  */
 
 const AGENT_VERSION = "0.15.26";
@@ -52,6 +60,23 @@ interface Agent {
 
 const agents = new Map<string, Agent>();
 const LOG_CAP = 400;
+
+/**
+ * Explains a non-zero exit using the agent's own words.
+ *
+ * "The Playit agent exited with code 2." is useless on its own — the reason is
+ * printed by the agent itself, one line above. Carry that line into the banner
+ * so a failure is readable without opening the log pane.
+ */
+const explainExit = (code: number, lines: string[]) => {
+  const detail = [...lines]
+    .reverse()
+    .map((l) => l.trim())
+    .find((l) => l && !/^\[Playit\]/.test(l) && !/^Usage:/i.test(l));
+  if (code === 2 && detail) return `The Playit agent rejected its arguments: ${detail}`;
+  if (code === 2) return "The Playit agent rejected its arguments and exited with code 2.";
+  return `The Playit agent exited with code ${code}${detail ? `: ${detail}` : "."}`;
+};
 
 const blank = (): Agent => ({
   child: null,
@@ -105,7 +130,14 @@ const pushLog = (serverId: string, chunk: string) => {
       state.claimUrl = claim[0];
       state.claimDeadline = null;
     }
-    const tunnel = line.match(/([a-z0-9-]+\.(?:playit\.gg|at\.playit\.gg)(?::\d+)?)/i);
+    // Public addresses look like  name.at.ply.gg:25565  (current),
+    // name.gl.at.ply.gg:41234 (dedicated), or name.auto.playit.gg:25565 (legacy).
+    // The port is part of what players paste, so it must survive the match — and
+    // the pattern must anchor on the whole multi-label host, or it matches just
+    // the "auto.playit.gg" tail and loses the tunnel name.
+    const tunnel = line.match(
+      /([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:at\.ply\.gg|at\.playit\.gg|playit\.gg):\d{2,5})/i
+    );
     if (tunnel && !state.address) state.address = tunnel[1];
   }
 };
@@ -189,7 +221,8 @@ export const startTunnel = async (serverId: string): Promise<PlayitState> => {
   }
 
   await fs.ensureDir(agentDir(serverId));
-  const args = ["-s", "--secret_path", secretPath(serverId), "--stdout"];
+  // One occurrence of --stdout only; see the header note.
+  const args = ["--secret_path", secretPath(serverId), "--stdout"];
   log(`[Playit] Starting agent: playit ${args.join(" ")}`);
 
   const child = spawn(binary, args, {
@@ -226,7 +259,7 @@ export const startTunnel = async (serverId: string): Promise<PlayitState> => {
     if (state.status !== "stopped") {
       state.status = code === 0 ? "stopped" : "error";
       if (code !== 0 && code !== null) {
-        state.error = `The Playit agent exited with code ${code}${signal ? ` (${signal})` : ""}.`;
+        state.error = `${explainExit(code, state.logs)}${signal ? ` (${signal})` : ""}`;
       }
       pushLog(serverId, `[Playit] Agent exited${code !== null ? ` with code ${code}` : ""}.\n`);
     }

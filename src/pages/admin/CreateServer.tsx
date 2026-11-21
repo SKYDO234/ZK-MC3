@@ -116,6 +116,7 @@ export const CreateServer: React.FC = () => {
   const maxDisk = settings?.maxDiskPerServer || 51200;
 
   const selectedSoftware = useMemo(() => softwareList?.find((s) => s.id === form.software), [softwareList, form.software]);
+  const isVm = (form.software || "").toUpperCase() === "VM";
 
   const suggestedPort = useMemo(() => {
     const base = 25565;
@@ -245,7 +246,7 @@ export const CreateServer: React.FC = () => {
                   </p>
                 )}
               </Field>
-              {selectedSoftware && (
+              {selectedSoftware && !isVm && (
                 <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-brand-500/20 bg-brand-500/[0.06] px-3.5 py-2.5">
                   <Info size={14} className="mt-0.5 flex-none text-brand-400" />
                   <p className="text-[0.72rem] leading-relaxed text-brand-100/70">
@@ -253,6 +254,33 @@ export const CreateServer: React.FC = () => {
                     {selectedSoftware.description}
                     {(selectedSoftware as any).java ? ` · requires Java ${(selectedSoftware as any).java}` : ""}
                   </p>
+                </div>
+              )}
+
+              {isVm && (
+                <div className="sm:col-span-2 space-y-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3.5 py-3">
+                  <p className="flex items-center gap-1.5 text-[0.72rem] font-semibold text-amber-200">
+                    <AlertTriangle size={13} className="flex-none" />
+                    This is a Linux userspace, not a hardware VM
+                  </p>
+                  <ul className="ml-1 space-y-1 text-[0.68rem] leading-relaxed text-amber-100/70">
+                    <li>
+                      · It runs <span className="font-mono text-amber-200/90">Hopingboyz VM Manager</span> on the JVM and
+                      installs an Ubuntu or Debian rootfs on first boot.
+                    </li>
+                    <li>
+                      · It shares the host kernel through PRoot — no KVM, no separate kernel, no root. Anything the
+                      guest breaks is broken on this machine too.
+                    </li>
+                    <li>
+                      · The guest shell appears in this server's <span className="text-amber-200/90">Console</span>, so
+                      you type commands there. It takes a few minutes and ~1 GB of disk to install on first start.
+                    </li>
+                    <li>
+                      · The <span className="text-amber-200/90">port</span> below is only a label for the guest's
+                      network slot; nothing listens on it until you start something inside the VM.
+                    </li>
+                  </ul>
                 </div>
               )}
             </div>
