@@ -80,7 +80,22 @@ export async function api<T = any>(path: string, options: Options = {}): Promise
   }
 
   if (options.raw) return response as unknown as T;
-  if (contentType.includes("application/json")) return response.json();
+
+  // 304 has no body by definition, and an empty JSON body cannot be parsed.
+  // Returning undefined lets callers keep their current state instead of
+  // throwing and falling back to hardcoded defaults — which is how a saved theme
+  // or panel name used to silently revert on the next load.
+  if (response.status === 304 || response.status === 204) return undefined as unknown as T;
+
+  if (contentType.includes("application/json")) {
+    const text = await response.text();
+    if (!text.trim()) return undefined as unknown as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return undefined as unknown as T;
+    }
+  }
   return (await response.text()) as unknown as T;
 }
 

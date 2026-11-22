@@ -47,6 +47,15 @@ const groupVersions = (versions: string[], software: string): VersionCategory[] 
       : [];
   }
 
+  // A VM image has exactly one build. Grouping it under a Minecraft release line
+  // would be nonsense, so it gets its own label and no "latest" stripping.
+  const vmSoftware = ["UBUNTU2204", "UBUNTU2404", "UBUNTU2604", "DEBIAN12", "DEBIAN13"].includes(
+    (software || "").toUpperCase()
+  );
+  if (vmSoftware) {
+    return [{ id: "vm", label: "Cloud image", versions: versions.length ? [...versions] : ["latest"] }];
+  }
+
   // BungeeCord and Waterfall publish a rolling build instead of version numbers,
   // so "latest" is a real, selectable choice for them — not a placeholder to drop.
   const proxy = ["BUNGEECORD", "WATERFALL"].includes((software || "").toUpperCase());

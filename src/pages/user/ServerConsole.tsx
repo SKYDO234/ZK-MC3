@@ -100,6 +100,7 @@ const SPARK_CAP = 40;
 
 /** Commands offered as one-click chips under the stream. */
 const QUICK_COMMANDS = ["list", "seed", "save-all", "whitelist list", "stop"];
+const VM_QUICK_COMMANDS = ["whoami", "ip a", "df -h", "free -m", "clear"];
 
 interface StatsPayload {
   running: boolean;
@@ -239,6 +240,13 @@ export const ServerConsole: React.FC<{
   const isOnline = stats?.isRunning ?? stats?.running ?? server.status === "online";
   const isTransitioning = stats?.status === "starting" || stats?.status === "stopping" || server.status === "installing";
 
+  // A VM's console is the guest's serial tty, not a Minecraft command channel.
+  // The distinction changes what the prompt sends and which shortcuts apply.
+  const isVm = ["UBUNTU2204", "UBUNTU2404", "UBUNTU2604", "DEBIAN12", "DEBIAN13"].includes(
+    String(server?.software || "").toUpperCase()
+  );
+  const vmSockRef = useRef<any>(null);
+
   /* ---- backlog ---- */
   useEffect(() => {
     let alive = true;
@@ -259,6 +267,23 @@ export const ServerConsole: React.FC<{
   /* ---- live stream ---- */
   useServerSocket(server.id, {
     onLog: (chunk) => {
+      // A tty does not speak in lines. Boot output arrives in fragments, progress
+      // bars rewrite the same row with \r, and the login prompt has no trailing
+      // newline — splitting per chunk would chop those into nonsense. For a VM the
+      // chunk is buffered and only line breaks already present are used, so
+      // partial output still appears.
+      if (isVm) {
+        setLines((prev) => {
+          const joined = (prev.length ? prev[prev.length - 1] : "") + chunk;
+          const parts = joined.split(/\r?\n/);
+          const tail = parts.pop() ?? "";
+          const next = [...prev.slice(0, prev.length ? -1 : 0), ...parts, tail].filter(
+            (l, i, arr) => !(l === "" && i === arr.length - 1)
+          );
+          return next.length > LOG_CAP ? next.slice(next.length - LOG_CAP) : next;
+        });
+        return;
+      }
       const incoming = chunk.split(/\r?\n/).filter(Boolean);
       if (!incoming.length) return;
       setLines((prev) => {
@@ -358,7 +383,17 @@ export const ServerConsole: React.FC<{
     setHistory((prev) => [value, ...prev.filter((h) => h !== value)].slice(0, 50));
     setHistoryIndex(-1);
     try {
-      await api(`/servers/${server.id}/command`, { method: "POST", body: { command: value } });
+      if (isVm) {
+        // The guest tty has no line protocol: it needs the text and a carriage
+        // return, delivered to the serial socket. The panel echoes the line into
+        // the log so the transcript stays readable.
+        const socket = (await import("../../lib/realtime")).getSocket();
+        vmSockRef.current = socket;
+        socket.emit("server:keys", { serverId: server.id, data: `${value}\r` });
+        setLines((prev) => [...prev, `> ${value}`]);
+      } else {
+        await api(`/servers/${server.id}/command`, { method: "POST", body: { command: value } });
+      }
     } catch (err: any) {
       setLines((prev) => [...prev, `[Panel] Command failed: ${err.message}`]);
     } finally {
@@ -719,7 +754,7 @@ export const ServerConsole: React.FC<{
           <span className="mr-1 flex items-center gap-1 text-[0.54rem] font-bold uppercase tracking-[0.16em] text-zinc-700">
             <Zap size={9} className="text-brand-500/70" /> Shortcuts
           </span>
-          {QUICK_COMMANDS.map((cmd) => (
+          {(isVm ? VM_QUICK_COMMANDS : QUICK_COMMANDS).map((cmd) => (
             <button
               key={cmd}
               type="button"
@@ -755,7 +790,15 @@ export const ServerConsole: React.FC<{
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={onKeyDown}
             disabled={!isOnline}
-            placeholder={isOnline ? "send a Minecraft command…" : "start the server to run commands"}
+            placeholder={
+              isOnline
+                ? isVm
+                  ? "type a shell command — sent to the guest tty"
+                  : "send a Minecraft command…"
+                : isVm
+                  ? "start the VM to attach its console"
+                  : "start the server to run commands"
+            }
             autoComplete="off"
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent font-mono text-[0.76rem] text-zinc-100 outline-none placeholder:text-zinc-700 disabled:cursor-not-allowed"

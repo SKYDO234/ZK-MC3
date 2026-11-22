@@ -252,6 +252,46 @@ Reference: [`daemon/README.md`](daemon/README.md).
 - Status follows the live socket, not a stored flag: kill the daemon and the
   node reads offline immediately; restart it and it re-attaches by itself.
 
+### Virtual machines (QEMU)
+
+The panel can host **real virtual machines**, not containers. Each guest boots
+its own kernel and gets its own disk, memory and network stack, and its serial
+console is streamed into the normal server console — the same command box you
+already use, now typing into a shell.
+
+Install the host dependencies once, on the machine running the panel:
+
+```bash
+bash scripts/vm-setup.sh          # or: curl -O <panel>/downloads/vm-setup.sh
+bash scripts/vm-setup.sh --check  # report only, changes nothing
+```
+
+Then **Admin → Servers → Create Server** and pick an image under the `VM`
+category: Ubuntu 22.04 / 24.04 / 26.04 LTS, Debian 12 or Debian 13. Official
+Canonical and Debian cloud images are downloaded on first use and cached in
+`/var/lib/vm-images`; each VM gets a thin qcow2 overlay backed by that cache.
+
+**Acceleration.** The panel checks `/dev/kvm` for presence *and* openability
+(a container often exposes the node while denying `open()`) and selects KVM or
+TCG itself. With KVM a guest boots in seconds; under TCG expect **about three
+minutes** to a login prompt. Both the setup script and the create form say which
+one you got and why.
+
+**Console.** The guest's `ttyS0` is bound to a unix socket
+(`-serial chardev:con0`), not to stdio. That matters: QEMU multiplexes its
+monitor onto stdin under `-nographic`, so a panel piping keystrokes into a
+stdio console corrupts the monitor and detaches the guest. The socket gives one
+clean bidirectional byte stream, survives a panel restart, and cannot be
+confused for the monitor. Guest output is appended to the console log as it
+arrives, so opening the console mid-boot replays everything.
+
+**Networking is the honest limitation.** Without `NET_ADMIN` there is no bridge
+and no TAP device, so guests use QEMU user-mode networking: outbound works,
+inbound arrives only through forwarded ports bound to `127.0.0.1`. SSH is
+forwarded automatically to the port you chose; reach it through your platform's
+port forwarding (in Codespaces, the **Ports** tab). Any other service needs its
+own forward.
+
 ### Panel settings
 Eight organised tabs — **Branding, Authentication, Email/SMTP, API, Notifications,
 Resource Limits, Billing, System** — covering logo upload, colour theming, session
@@ -407,47 +447,6 @@ curl http://localhost:26001
 Minecraft software additionally needs a JDK on the host
 (`sudo apt install openjdk-21-jre-headless`). The installer attempts this automatically
 and the panel surfaces a clear warning if Java is missing.
-
----
-
-## 🖥 QEMU virtual machines
-
-Real VMs — each guest boots its own kernel with its own disk, memory and network
-stack — on official Ubuntu Server cloud images.
-
-```bash
-wget -O zkvm.tar.gz http://<panel>/downloads/zkvm.tar.gz
-tar -xzf zkvm.tar.gz
-sudo bash qemu/setup.sh            # installs QEMU + the zkvm command
-sudo zkvm create --name dev --ram 2048 --disk 20 --series 22.04
-sudo zkvm start dev
-```
-
-`zkvm doctor` reports the environment before you commit to anything: whether
-`/dev/kvm` is usable (native speed) or the manager must fall back to **TCG
-software emulation** (10–30× slower), which tools are missing, free disk, and
-exactly which networking modes the host permits.
-
-Images are downloaded from `cloud-images.ubuntu.com` and verified against
-Canonical's `SHA256SUMS`:
-
-| Series | Image |
-|---|---|
-| 20.04 LTS | `releases/20.04/release/ubuntu-20.04-server-cloudimg-amd64.img` |
-| 22.04 LTS | `releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img` |
-| 24.04 LTS | `releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img` |
-| 26.04 LTS | `releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img` |
-
-Availability is probed live, and the three outcomes are reported distinctly:
-*available*, *not published by Canonical*, and *could not reach the server* — it
-never blames Ubuntu for a local network problem.
-
-**Codespaces limits, stated plainly:** there is no nested virtualisation, so VMs
-run under TCG; inbound access is only through host-forwarded localhost ports
-(forward `2222` in the Ports tab to reach SSH from your machine); and bridged/TAP
-networking is unavailable because there is no `NET_ADMIN` capability.
-
-Full details: [`vm/qemu/README.md`](vm/qemu/README.md).
 
 ---
 

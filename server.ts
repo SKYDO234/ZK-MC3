@@ -25,6 +25,14 @@ const io: import("socket.io").Server = new SocketServer(httpServer, {
 });
 app.set("io", io);
 
+// ETags on API responses buy nothing and cost correctness: Express answers a
+// matching If-None-Match with 304 and an empty body, which the browser's fetch()
+// cannot turn back into data. The settings endpoints are the worst case — a
+// saved theme or panel name silently reverts to the built-in defaults because
+// the refresh parse fails. Static assets under /assets keep Last-Modified, so
+// they still revalidate cheaply.
+app.set("etag", false);
+
 const PORT = Number(process.env.PORT) || 31120;
 const isDev = process.env.NODE_ENV === "development";
 
@@ -72,6 +80,20 @@ io.on("connection", (socket) => {
     try {
       const { sendCommandToServer } = await import("./src/server/services/runtime");
       await sendCommandToServer(serverId, String(command || "").slice(0, 2000));
+    } catch (err: any) {
+      socket.emit("server:error", { message: err.message });
+    }
+  });
+
+  // Raw keystrokes for a VM's guest tty. The Minecraft path sends whole lines
+  // and lets the JVM parse them; a serial console has no line protocol, so
+  // control characters, arrow keys and Tab must reach the guest intact.
+  socket.on("server:keys", async ({ serverId, data }: any) => {
+    if (!(await canAccess(user, serverId))) return;
+    try {
+      const { vmConsoleInput } = await import("./src/server/services/runtime");
+      const ok = await vmConsoleInput(serverId, String(data || ""));
+      if (!ok) socket.emit("server:error", { message: "The guest console is not attached yet." });
     } catch (err: any) {
       socket.emit("server:error", { message: err.message });
     }
@@ -127,7 +149,16 @@ app.use("/api/api-keys", apiKeyRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/system", systemRoutes);
 
-app.get("/api/settings", async (_req, res) => res.json(await publicSettings()));
+// Settings drive the entire visual identity of the panel, so a stale copy is not
+// a performance win — it is the bug where a saved theme or panel name appears to
+// be ignored. Express would otherwise emit an ETag and answer a browser's
+// revalidation with 304 + no body, which the client cannot parse back into
+// settings. no-store keeps every read authoritative.
+app.get("/api/settings", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.json(await publicSettings());
+});
 
 // ---------------------------------------------------------------------------
 // Daemon distribution — the zip is served by the panel so a node always runs a
@@ -144,19 +175,13 @@ app.get("/downloads/zkdaemon.zip", (req, res) => {
   res.download(file, "zkdaemon.zip");
 });
 
-// ---------------------------------------------------------------------------
-// QEMU VM environment — the manager is a self-contained shell tree, so it ships
-// as a tar.gz the operator unpacks and runs with `sudo bash setup.sh`.
-// ---------------------------------------------------------------------------
-app.get("/downloads/zkvm.tar.gz", (req, res) => {
-  const file = path.join(process.cwd(), "dist", "downloads", "zkvm.tar.gz");
-  if (!fs.existsSync(file)) {
-    return res
-      .status(404)
-      .type("text/plain")
-      .send("The VM package has not been built. Run `npm run build:vm`.");
-  }
-  res.download(file, "zkvm.tar.gz");
+// The VM host setup script, served so an operator never has to clone the repo
+// just to install QEMU.
+app.get("/downloads/vm-setup.sh", (_req, res) => {
+  const file = path.join(process.cwd(), "scripts", "vm-setup.sh");
+  if (!fs.existsSync(file)) return res.status(404).type("text/plain").send("vm-setup.sh is missing from this build.");
+  res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
+  res.sendFile(file);
 });
 
 app.get("/api/daemon/version", (_req, res) => {
@@ -236,6 +261,12 @@ async function attachFrontend() {
     app.use("/uploads", express.static(path.join(publicDir, "uploads")));
     app.use(express.static(publicDir));
     app.use(express.static(dist));
+    // A request for a missing /downloads/ file is a dead download link, not a
+    // client-side route. Answering 404 text beats returning the SPA's HTML under
+    // a .zip/.tar.gz name, which leaves the operator with a corrupt archive.
+    app.get("/downloads/*", (_req, res) => {
+      res.status(404).type("text/plain").send("That download does not exist on this panel.");
+    });
     app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
   }
 }

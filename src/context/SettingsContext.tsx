@@ -73,9 +73,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const refresh = useCallback(async () => {
     try {
       const data = await api<Partial<PublicSettingsWithAppearance>>("/settings");
+      // A missing/empty body (304, 204, a proxy eating the response) must not be
+      // treated as "settings are all defaults". Overwriting here is what made a
+      // saved theme and panel name appear to revert: the fetch succeeded, the
+      // body was empty, and every appearance key snapped back to the fallback.
+      if (!data || typeof data !== "object" || Object.keys(data).length === 0) return;
       setSettings({ ...FALLBACK, ...data });
     } catch {
-      setSettings(FALLBACK);
+      // A failed refresh keeps the last known-good settings on screen. Blanking
+      // to FALLBACK would throw away a working theme because the network blipped.
     } finally {
       setLoading(false);
     }
@@ -83,6 +89,25 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // Settings are panel-wide and changeable by any admin, so an open tab has to
+  // notice. Without this, a rename or theme change made in one browser never
+  // reached another — the save said "every user now sees the new look" while
+  // everyone else kept the previous look until a hard reload.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const timer = window.setInterval(tick, 30_000);
+    // Returning to a tab is when a stale theme is most obvious.
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+    };
   }, [refresh]);
 
   useEffect(() => {
