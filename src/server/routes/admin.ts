@@ -47,6 +47,11 @@ router.get("/health", requireAdmin, async (_req, res) => {
 });
 
 router.get("/settings", requireAdmin, async (_req, res) => {
+  // Never cacheable: this is the form's source of truth. An ETag here lets a
+  // browser revalidate to 304 with no body after a save, so the settings screen
+  // would reopen showing values the operator already changed.
+  res.setHeader("Cache-Control", "no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
   const settings = await getSettings();
   res.json({ ...settings, smtpPass: settings.smtpPass ? "********" : "" });
 });

@@ -25,6 +25,14 @@ const io: import("socket.io").Server = new SocketServer(httpServer, {
 });
 app.set("io", io);
 
+// ETags on API responses buy nothing and cost correctness: Express answers a
+// matching If-None-Match with 304 and an empty body, which the browser's fetch()
+// cannot turn back into data. The settings endpoints are the worst case — a
+// saved theme or panel name silently reverts to the built-in defaults because
+// the refresh parse fails. Static assets under /assets keep Last-Modified, so
+// they still revalidate cheaply.
+app.set("etag", false);
+
 const PORT = Number(process.env.PORT) || 31120;
 const isDev = process.env.NODE_ENV === "development";
 
@@ -141,7 +149,16 @@ app.use("/api/api-keys", apiKeyRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/system", systemRoutes);
 
-app.get("/api/settings", async (_req, res) => res.json(await publicSettings()));
+// Settings drive the entire visual identity of the panel, so a stale copy is not
+// a performance win — it is the bug where a saved theme or panel name appears to
+// be ignored. Express would otherwise emit an ETag and answer a browser's
+// revalidation with 304 + no body, which the client cannot parse back into
+// settings. no-store keeps every read authoritative.
+app.get("/api/settings", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.json(await publicSettings());
+});
 
 // ---------------------------------------------------------------------------
 // Daemon distribution — the zip is served by the panel so a node always runs a

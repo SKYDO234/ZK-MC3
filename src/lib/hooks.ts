@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { getSocket } from "./realtime";
+import { useSettings } from "../context/SettingsContext";
 
 export const useApi = <T,>(path: string | null, deps: any[] = []) => {
   const [data, setData] = useState<T | null>(null);
@@ -119,12 +120,20 @@ export const useSystemStats = () => {
   return stats;
 };
 
+/**
+ * Document titles are written as "<Page> · ZK-MC3-PANEL" at each call site, but the
+ * panel can be renamed in Panel Settings. Rather than thread the live name through
+ * fifteen call sites, the suffix is substituted here: the literal product name is
+ * only ever a placeholder for whatever the operator called their panel.
+ */
 export const useDocumentTitle = (title: string) => {
+  const { settings } = useSettings();
+  const panelName = settings?.panelName || "ZK-MC3-PANEL";
   useEffect(() => {
     const previous = document.title;
-    document.title = title;
+    document.title = title.replace(/ZK-MC3-PANEL/g, panelName);
     return () => {
       document.title = previous;
     };
-  }, [title]);
+  }, [title, panelName]);
 };

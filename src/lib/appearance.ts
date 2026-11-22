@@ -259,14 +259,30 @@ const SIDEBAR_W: Record<string, string> = { compact: "216px", normal: "248px", w
 
 const FONT_LINKS = new Set<string>();
 
-/** Loads a Google Font once; harmless when the network is unavailable. */
+/**
+ * Loads a Google Font once.
+ *
+ * Two details matter here. A family name with a space must become `+` in the
+ * query string ("Space Grotesk" → "Space+Grotesk"); and asking for
+ * `wght@400;500;600;700` is only valid for variable/weighted families — Google
+ * returns 400 for a single-weight display face like Audiowide or Orbitron, which
+ * silently left the panel on the fallback font. Those get no weight axis.
+ *
+ * A failed load is not an error the operator can act on: the CSS stack already
+ * lists ui-sans-serif and system fonts behind the requested family, so a missing
+ * Google Font degrades to the system font instead of to nothing.
+ */
+const SINGLE_WEIGHT = new Set(["Audiowide", "Orbitron"]);
+
 export const loadFont = (family: string) => {
   if (!family || FONT_LINKS.has(family)) return;
   FONT_LINKS.add(family);
+  const encoded = family.trim().replace(/ /g, "+");
+  const weights = SINGLE_WEIGHT.has(family) ? "" : ":wght@400;500;600;700";
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.dataset.zkFont = family;
-  link.href = `https://fonts.googleapis.com/css2?family=${family.replace(/ /g, "+")}:wght@400;500;600;700&display=swap`;
+  link.href = `https://fonts.googleapis.com/css2?family=${encoded}${weights}&display=swap`;
   document.head.appendChild(link);
 };
 
