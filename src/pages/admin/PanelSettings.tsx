@@ -69,6 +69,9 @@ export const PanelSettings: React.FC = () => {
     kvmReason: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
+  // Local, so clearing the field shows why the save was refused instead of
+  // silently doing nothing.
+  const [nameError, setNameError] = useState("");
   useEffect(() => {
     api<{ ready: boolean; blocker: string | null; kvm: boolean; kvmReason: string }>("/system/vm/host")
       .then((data) => setVmHost(data))
@@ -89,9 +92,16 @@ export const PanelSettings: React.FC = () => {
   const set = (key: string, value: any) => setForm((f: any) => ({ ...f, [key]: value }));
 
   const save = async (patch?: Record<string, any>) => {
+    const payload = patch || form;
+    // Catch an empty panel name before the request: the server rejects it, and a
+    // bare 400 toast does not explain which field caused it.
+    if (!patch && "panelName" in payload && !String(payload.panelName || "").trim()) {
+      setNameError("Panel name cannot be empty");
+      return;
+    }
+    setNameError("");
     setSaving(true);
     try {
-      const payload = patch || form;
       const updated = await api("/admin/settings", { method: "PUT", body: payload });
       setForm(updated);
       setSavedPlayit(Boolean(updated.enablePlayit));
@@ -132,7 +142,10 @@ export const PanelSettings: React.FC = () => {
     }
   };
 
-  if (loading || !form.panelName) return <PageSkeleton />;
+  // Only the initial load may block the page. Gating on `form.panelName` meant an
+  // empty name — which a user produces by clearing the field to retype it — left
+  // the settings screen as a permanent skeleton, with no way back in to fix it.
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-6">
@@ -164,8 +177,15 @@ export const PanelSettings: React.FC = () => {
               <Card>
                 <CardHeader title="Identity" subtitle="Panel name and company attribution" icon={<Building2 size={16} />} />
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <Field label="Panel name" required>
-                    <input className="zk-input" value={form.panelName} onChange={(e) => set("panelName", e.target.value)} />
+                  <Field label="Panel name" required error={nameError}>
+                    <input
+                      className="zk-input"
+                      value={form.panelName || ""}
+                      onChange={(e) => {
+                        set("panelName", e.target.value);
+                        if (nameError) setNameError("");
+                      }}
+                    />
                   </Field>
                   <Field label="Tagline">
                     <input className="zk-input" value={form.panelTagline} onChange={(e) => set("panelTagline", e.target.value)} />
@@ -179,6 +199,20 @@ export const PanelSettings: React.FC = () => {
                   <Field label="Website" className="sm:col-span-2">
                     <input className="zk-input" value={form.companyUrl} onChange={(e) => set("companyUrl", e.target.value)} />
                   </Field>
+                </div>
+                <div className="mt-4 flex items-center gap-3 border-t border-white/[0.06] pt-4">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<Save size={13} />}
+                    loading={saving}
+                    onClick={() => save()}
+                  >
+                    Save identity
+                  </Button>
+                  <p className="text-[0.66rem] text-zinc-500">
+                    Applies to the sidebar, browser tab and every page title.
+                  </p>
                 </div>
               </Card>
 
@@ -238,6 +272,18 @@ export const PanelSettings: React.FC = () => {
                 <Field label="Or paste an image URL" className="mt-4">
                   <input className="zk-input" value={form.logoUrl} onChange={(e) => set("logoUrl", e.target.value)} />
                 </Field>
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  icon={<Save size={12} />}
+                  loading={saving}
+                  onClick={() => save({ logoUrl: form.logoUrl, faviconUrl: form.logoUrl })}
+                >
+                  Save logo URL
+                </Button>
+                <p className="mt-2 text-[0.66rem] leading-relaxed text-zinc-600">
+                  Uploading a file applies immediately; a pasted URL needs this button.
+                </p>
                 
               </Card>
 

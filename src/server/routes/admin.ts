@@ -78,6 +78,14 @@ router.put("/settings", requireAdmin, async (req: any, res) => {
   for (const key of numericKeys) {
     if (payload[key] !== undefined) payload[key] = Number(payload[key]);
   }
+
+  // An empty panel name is not a valid state: it renders as a blank sidebar, an
+  // empty browser title and, until recently, an unusable settings page. Reject it
+  // here rather than persisting something the operator cannot see or correct.
+  if (payload.panelName !== undefined && !String(payload.panelName).trim())
+    return res.status(400).json({ error: "Panel name cannot be empty" });
+  if (payload.panelName !== undefined) payload.panelName = String(payload.panelName).trim().slice(0, 60);
+
   const settings = await saveSettings(payload);
   await logActivity({
     type: "admin",
