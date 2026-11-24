@@ -59,18 +59,6 @@ export const CreateServer: React.FC = () => {
   const [created, setCreated] = useState<any>(null);
   const [portCheck, setPortCheck] = useState<{ checking: boolean; inUse: boolean }>({ checking: false, inUse: false });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [vmHost, setVmHost] = useState<{
-    ready: boolean;
-    blocker: string | null;
-    kvm: boolean;
-    kvmReason: string;
-  } | null>(null);
-
-  useEffect(() => {
-    api<{ ready: boolean; blocker: string | null; kvm: boolean; kvmReason: string }>("/system/vm/host")
-      .then((data) => setVmHost(data))
-      .catch(() => setVmHost(null));
-  }, []);
 
   useEffect(() => {
     if (users && users.length && !form.ownerId) {
@@ -128,17 +116,6 @@ export const CreateServer: React.FC = () => {
   const maxDisk = settings?.maxDiskPerServer || 51200;
 
   const selectedSoftware = useMemo(() => softwareList?.find((s) => s.id === form.software), [softwareList, form.software]);
-
-  const isVmSelected = selectedSoftware?.category === "VM";
-
-  // Selecting a VM image switches the whole resource model: a guest reserves its
-  // RAM up front, its disk is a qcow2 in GB, and "port" means the forwarded SSH
-  // port rather than a game port. Resetting the defaults here avoids creating a
-  // VM with 10240 MB of "disk" or a Minecraft port.
-  useEffect(() => {
-    if (!isVmSelected) return;
-    setForm((f) => ({ ...f, ram: 2048, cpu: 2, disk: 20 * 1024, port: 2222, version: "latest" }));
-  }, [form.software, isVmSelected]);
 
   const suggestedPort = useMemo(() => {
     const base = 25565;
@@ -278,44 +255,6 @@ export const CreateServer: React.FC = () => {
                   </p>
                 </div>
               )}
-              {isVmSelected && vmHost && !vmHost.ready && (
-                <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/[0.08] px-3.5 py-2.5">
-                  <AlertTriangle size={14} className="mt-0.5 flex-none text-red-400" />
-                  <div className="text-[0.72rem] leading-relaxed text-red-100/80">
-                    <p className="font-semibold text-red-200">This node cannot run virtual machines yet</p>
-                    <p className="mt-1">{vmHost.blocker}</p>
-                    <p className="mt-1.5 font-mono text-[0.66rem] text-red-200/70">
-                      sudo bash scripts/vm-setup.sh
-                    </p>
-                  </div>
-                </div>
-              )}
-              {isVmSelected && vmHost?.ready && (
-                <div className="sm:col-span-2 space-y-2">
-                  <div className={`flex items-start gap-2 rounded-xl border px-3.5 py-2.5 ${
-                    vmHost.kvm
-                      ? "border-emerald-500/25 bg-emerald-500/[0.06]"
-                      : "border-amber-500/25 bg-amber-500/[0.06]"
-                  }`}>
-                    <AlertTriangle size={14} className={`mt-0.5 flex-none ${vmHost.kvm ? "text-emerald-400" : "text-amber-400"}`} />
-                    <div className="text-[0.72rem] leading-relaxed">
-                      <p className={`font-semibold ${vmHost.kvm ? "text-emerald-200" : "text-amber-200"}`}>
-                        {vmHost.kvm ? "Hardware acceleration available" : "Software emulation only"}
-                      </p>
-                      <p className={vmHost.kvm ? "text-emerald-100/70" : "text-amber-100/70"}>
-                        {vmHost.kvm
-                          ? "KVM is available — the guest runs at near-native speed."
-                          : `${vmHost.kvmReason}. The guest takes about 3 minutes to reach a login prompt. That is normal, not a hang.`}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="px-1 text-[0.66rem] leading-relaxed text-white/40">
-                    The guest gets its own kernel and disk. Its SSH port is forwarded to 127.0.0.1 — use the
-                    Ports tab to reach it from outside. Ingress other than SSH needs its own forward and is
-                    configured after creation.
-                  </p>
-                </div>
-              )}
             </div>
           </Card>
 
@@ -377,7 +316,7 @@ export const CreateServer: React.FC = () => {
                   {errors.cpu && <p className="mt-1.5 text-[0.7rem] text-red-400">{errors.cpu}</p>}
                 </div>
                 <div>
-                  <label className="zk-label">{isVmSelected ? "Guest disk (qcow2)" : "Disk space"}</label>
+                  <label className="zk-label">Disk space</label>
                   <select
                     className="zk-select"
                     value={form.disk}
@@ -394,16 +333,7 @@ export const CreateServer: React.FC = () => {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label={isVmSelected ? "Forwarded SSH port" : "Network port"}
-                  required
-                  error={errors.port}
-                  hint={
-                    isVmSelected
-                      ? "Reachable on 127.0.0.1 inside the host — forward it from the Ports tab"
-                      : "Players connect via your-node-ip:port"
-                  }
-                >
+                <Field label="Network port" required error={errors.port} hint="Players connect via your-node-ip:port">
                   <input
                     type="number"
                     className="zk-input font-mono"

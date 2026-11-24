@@ -37,22 +37,6 @@ import {
   waitForPortFree,
 } from "./proc";
 import { networkRate, forgetNetworkSample } from "./netio";
-import {
-  VM_IMAGE,
-  isVmSoftware,
-  hostCapabilities,
-  buildVmLaunch,
-  ensureVmDisk,
-  writeCloudInit,
-  generatePassword,
-  vmConsoleSock,
-  vmPidFile,
-  readPid,
-  pidAlive,
-  stopVm,
-  isVmRunning,
-} from "./qemu";
-import { attachWhenReady, sendToGuest, closeBridge } from "./vmconsole";
 
 export interface ServerRecord {
   id: string;
@@ -168,9 +152,7 @@ const panelEvent = (message: string) => {
 };
 
 const writeLog = async (id: string, message: string) => {
-  // Prefixed lines are one-shot notices from the panel or the VM engine; raw
-  // process output arrives with its own newlines and must not be touched.
-  const line = /^\[(Panel|VM)\]/.test(message) ? `${message}\n` : message;
+  const line = message.startsWith("[Panel]") ? `${message}\n` : message;
   await appendConsoleLog(id, line);
   emitLog(id, line);
   if (line.startsWith("[Panel]") && /online|exit|exited|failed|Port/i.test(line)) {
@@ -285,39 +267,6 @@ export const provisionServerFiles = async (server: ServerRecord, onLog?: (m: str
   await fs.ensureDir(dir);
   const log = onLog || (() => {});
   const software = (server.software || "PAPER").toUpperCase();
-
-  // A VM is provisioned by building its overlay disk and cloud-init seed. There
-  // is no jar to fetch and no files to lay down.
-  if (isVmSoftware(software)) {
-    const image = VM_IMAGE(software)!;
-    const caps = await hostCapabilities(true);
-    if (caps.blocker) throw new Error(caps.blocker);
-
-    const diskGb = Math.max(5, Math.round((Number(server.disk) || image.disk * 1024) / 1024));
-    await ensureVmDisk(server.id, dir, image, diskGb, log);
-
-    // The credentials are generated here, shown once in the console log, and
-    // baked into the seed. They cannot be recovered afterwards (cloud-init only
-    // runs on first boot), so the log line is the operator's only copy.
-    const password = server.startupCommand && server.startupCommand.startsWith("pw:")
-      ? server.startupCommand.slice(3)
-      : generatePassword();
-    const user = image.user;
-    await writeCloudInit({
-      serverDir: dir,
-      hostname: server.name,
-      user,
-      password,
-    });
-    log("");
-    log("[VM] ─────────────────────────────────────────────");
-    log(`[VM]  Login    ${user}`);
-    log(`[VM]  Password ${password}`);
-    log(`[VM]  SSH      ssh ${user}@127.0.0.1 -p ${server.port}`);
-    log("[VM] ─────────────────────────────────────────────");
-    log("[VM] Save that password now — it is written into the guest and cannot be shown again.");
-    return;
-  }
 
   if (software === "NODEJS") {
     if (!(await fs.pathExists(path.join(dir, "package.json")))) {
@@ -767,160 +716,11 @@ const startRemoteServer = async (server: ServerRecord, triggeredBy: string) => {
   }
 };
 
-
-// ---------------------------------------------------------------------------
-// QEMU virtual machines
-// ---------------------------------------------------------------------------
-
-/**
- * Provision a VM's disk and cloud-init seed, then boot it.
- *
- * Two things here are deliberate and were expensive to learn:
- *   1. the QEMU process is `detached` and unmapped from our stdio, because a
- *      child that inherits stdout keeps the panel's response stream open and
- *      makes `start` appear to hang until the guest shuts down;
- *   2. the pid is read back from the pidfile QEMU's own -pidfile wrote, not held
- *      in memory, so a VM keeps running across a panel restart and `stop`
- *      still finds it.
- */
-const startVmServer = async (server: ServerRecord, triggeredBy: string) => {
-  const serverId = server.id;
-  const image = VM_IMAGE(server.software);
-  if (!image) throw new Error(`Unknown VM image "${server.software}"`);
-
-  if (await isVmRunning(serverId)) throw new Error("This VM is already running");
-
-  const caps = await hostCapabilities(true);
-  if (caps.blocker) {
-    await writeLog(serverId, `[VM] Cannot start: ${caps.blocker}`);
-    throw new Error(caps.blocker);
-  }
-
-  const dir = serverDir(serverId);
-  await fs.ensureDir(dir);
-  await updateServer(serverId, { status: "starting", reattached: false });
-  emitStatus(serverId, "starting");
-  await writeLog(serverId, `[VM] Preparing ${image.label} (triggered by ${triggeredBy})`);
-
-  try {
-    const diskGb = Math.max(5, Math.round((Number(server.disk) || image.disk * 1024) / 1024));
-    await ensureVmDisk(serverId, dir, image, diskGb, (line) => void writeLog(serverId, line));
-
-    // The seed carries the login the panel displays. If it is missing the guest
-    // has no accessible account, and an existing disk cannot be re-seeded
-    // safely (cloud-init only runs on first boot), so refuse instead of booting
-    // a VM the operator can never log into.
-    const seedExists = await fs.pathExists(path.join(dir, "seed.iso"));
-    if (!seedExists) {
-      throw new Error(
-        "This VM has no cloud-init seed. Delete it and create a new VM — an existing disk cannot be given a new login safely."
-      );
-    }
-
-    const launch = await buildVmLaunch({
-      serverId,
-      serverDir: dir,
-      image,
-      ram: Number(server.ram) || image.ram,
-      cpu: Number(server.cpu) || image.cpu,
-      sshPort: Number(server.port) || 2222,
-      caps,
-    });
-
-    for (const line of launch.banner) await writeLog(serverId, line);
-    await writeLog(serverId, `[VM] SSH will be available on 127.0.0.1:${server.port} once the guest boots.`);
-
-    const { cmd, args } = launch;
-    const child = spawn(cmd, args, {
-      detached: true,
-      // All three descriptors redirected. This is the fix for `start` hanging:
-      // an inherited stdout keeps the parent's pipe open for the VM's lifetime.
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    child.unref();
-
-    // QEMU daemonises through -pidfile, but we also record it ourselves in case
-    // that write races. Whichever lands first wins; both name the same pid.
-    const pid = child.pid || null;
-    if (pid) {
-      await fs.ensureDir(path.dirname(vmPidFile(serverId)));
-      await fs.writeFile(vmPidFile(serverId), String(pid));
-    }
-
-    await new Promise((r) => setTimeout(r, 700));
-    if (!pidAlive(pid)) {
-      await updateServer(serverId, { status: "error", pid: null, startedAt: null });
-      emitStatus(serverId, "error");
-      throw new Error(
-        "QEMU exited immediately. Check the console log — usually a missing disk image or an unusable accelerator."
-      );
-    }
-
-    await updateServer(serverId, {
-      status: "online",
-      pid,
-      startedAt: new Date().toISOString(),
-    });
-    emitStatus(serverId, "online");
-    await writeLog(serverId, `[VM] QEMU is running (pid ${pid}). Waiting for the guest serial console…`);
-
-    // Attach in the background: the guest needs time to initialise ttyS0, and a
-    // 3-minute TCG boot must not block the HTTP response that started it.
-    // Guest output is appended to the console log as it arrives, so opening the
-    // console later replays the whole boot and a viewer who connects mid-boot
-    // still sees what happened.
-    void attachWhenReady(
-      serverId,
-      launch.consoleSock,
-      (line) => void writeLog(serverId, line),
-      (chunk) => void appendConsoleLog(serverId, chunk)
-    ).catch(() => {});
-    return true;
-  } catch (err: any) {
-    await writeLog(serverId, `[VM] Startup failed: ${err.message}`);
-    await updateServer(serverId, { status: "error", pid: null, startedAt: null });
-    emitStatus(serverId, "error");
-    throw err;
-  }
-};
-
-/** Console input for a VM goes to the guest tty, not to a child's stdin. */
-const sendCommandToVm = async (serverId: string, command: string) => {
-  const clean = String(command || "").replace(/[\r\n]+/g, " ").slice(0, 2000);
-  if (!clean.trim()) throw new Error("Command cannot be empty");
-  if (!(await isVmRunning(serverId))) throw new Error("This VM is not running. Start it first.");
-  await writeLog(serverId, `${clean}\n`);
-  if (!sendToGuest(serverId, clean)) {
-    // One retry: the socket may have been reset between the check and the write.
-    await new Promise((r) => setTimeout(r, 300));
-    if (!sendToGuest(serverId, clean)) {
-      throw new Error(
-        "The guest console is not attached yet. A software-emulated VM takes a few minutes to boot — wait for the login prompt to appear in the console."
-      );
-    }
-  }
-  return true;
-};
-
-export const vmConsoleInput = async (serverId: string, data: string) => {
-  const { writeRaw } = await import("./vmconsole");
-  return writeRaw(serverId, String(data || "").slice(0, 2000));
-};
-
-export { sendCommandToVm };
-
 export const startServer = async (serverId: string, triggeredBy = "panel") => {
   const server = await findServer(serverId);
   if (!server) throw new Error("Server not found");
   if (server.status === "suspended") throw new Error("This server is suspended");
   if (isRemoteServer(server)) return startRemoteServer(server, triggeredBy);
-
-  // VMs take a different path entirely: no jar, no java, no shared port. The
-  // guest owns a qcow2 and a serial socket, and its lifecycle is a QEMU process
-  // tracked by pidfile rather than a ChildProcess we hold in memory, so it
-  // survives a panel restart.
-  if (isVmSoftware(server.software)) return startVmServer(server, triggeredBy);
-
   if (procs.has(serverId)) throw new Error("Server is already running");
 
   // External (recovered) process check
@@ -1073,11 +873,6 @@ export const sendCommandToServer = async (serverId: string, command: string) => 
     const { runOnNode } = await import("./daemon");
     return runOnNode(target.nodeId, "command", { serverId, command });
   }
-  // A VM has no ChildProcess in `procs`; its console is the guest's tty over a
-  // unix socket, so it is handled before the stdin lookup below.
-  if (target && isVmSoftware(target.software)) {
-    return sendCommandToVm(serverId, command);
-  }
   const managed = procs.get(serverId);
   if (!managed) {
     throw new Error("Server is not accepting console input. Start the server first.");
@@ -1186,56 +981,10 @@ const stopManaged = async (serverId: string, signal: NodeJS.Signals, gracefulMs:
   return true;
 };
 
-/**
- * Stop a VM. A graceful guest shutdown would need ACPI or a `poweroff` typed
- * into the console, and neither is reliable under TCG where the guest may still
- * be in early boot — so SIGTERM to QEMU is the honest primitive, escalating to
- * SIGKILL. The qcow2 is copy-on-write and crash-consistent enough that this is
- * safe; it is equivalent to pulling the plug on a running machine.
- */
-const stopVmServer = async (serverId: string, signal: NodeJS.Signals) => {
-  const server = await findServer(serverId);
-  if (!server) throw new Error("Server not found");
-
-  if (!(await isVmRunning(serverId))) {
-    closeBridge(serverId);
-    await updateServer(serverId, { status: "offline", pid: null, startedAt: null });
-    emitStatus(serverId, "offline");
-    return true;
-  }
-
-  await updateServer(serverId, { status: "stopping" });
-  emitStatus(serverId, "stopping");
-  await writeLog(serverId, `[VM] Stopping QEMU (${signal === "SIGKILL" ? "force" : "graceful"})…`);
-
-  closeBridge(serverId);
-  await stopVm(serverId, signal === "SIGKILL" ? 2000 : 15000);
-
-  await updateServer(serverId, { status: "offline", pid: null, startedAt: null });
-  emitStatus(serverId, "offline");
-  await writeLog(serverId, "[VM] Stopped.");
-  return true;
-};
-
-export const stopServer = async (serverId: string) => {
-  const server = await findServer(serverId);
-  if (server && isVmSoftware(server.software)) return stopVmServer(serverId, "SIGTERM");
-  return stopManaged(serverId, "SIGTERM", 25000);
-};
-
-export const killServer = async (serverId: string) => {
-  const server = await findServer(serverId);
-  if (server && isVmSoftware(server.software)) return stopVmServer(serverId, "SIGKILL");
-  return stopManaged(serverId, "SIGKILL", 3000);
-};
+export const stopServer = (serverId: string) => stopManaged(serverId, "SIGTERM", 25000);
+export const killServer = (serverId: string) => stopManaged(serverId, "SIGKILL", 3000);
 
 export const restartServer = async (serverId: string, triggeredBy = "panel") => {
-  const server = await findServer(serverId);
-  if (server && isVmSoftware(server.software)) {
-    await stopVmServer(serverId, "SIGTERM");
-    await new Promise((r) => setTimeout(r, 800));
-    return startServer(serverId, triggeredBy);
-  }
   const managed = procs.get(serverId);
   if (managed) {
     await stopManaged(serverId, "SIGTERM", 20000);
@@ -1249,13 +998,7 @@ export const isServerRunning = (serverId: string) => procs.has(serverId);
 export const getRuntimeState = async (serverId: string) => {
   const server = await findServer(serverId);
   const managed = procs.get(serverId);
-
-  // A VM is not in `procs` — it is a detached QEMU tracked by pidfile. Read the
-  // pidfile rather than trusting the record, so a VM killed outside the panel
-  // reports offline instead of "online" forever.
-  const isVm = !!server && isVmSoftware(server.software);
-  const vmPid = isVm ? await readPid(serverId) : null;
-  const pid = managed?.child.pid || (isVm ? vmPid || 0 : server?.pid || 0);
+  const pid = managed?.child.pid || server?.pid || 0;
   const alive = Boolean(pid && isProcessAlive(pid));
   const running = Boolean(managed) || alive;
 
@@ -1313,12 +1056,7 @@ export const deleteServerCompletely = async (serverId: string) => {
     await stopManaged(serverId, "SIGKILL", 3000);
   } else {
     const server = await findServer(serverId);
-    if (server && isVmSoftware(server.software)) {
-      // Remove the bridge first: it holds the socket open, and deleting the
-      // directory under a live connection leaves QEMU writing to a deleted inode.
-      closeBridge(serverId);
-      await stopVm(serverId, 5000);
-    } else if (server?.pid && isProcessAlive(server.pid)) {
+    if (server?.pid && isProcessAlive(server.pid)) {
       try {
         process.kill(server.pid, "SIGKILL");
       } catch {
@@ -1327,13 +1065,8 @@ export const deleteServerCompletely = async (serverId: string) => {
     }
   }
   procs.delete(serverId);
-  // The qcow2 lives inside the server directory, so this removes the guest's
-  // disk with it. The shared base image under /var/lib/vm-images is deliberately
-  // kept — it is a 700 MB cache, not this VM's data.
   await fs.remove(serverDir(serverId)).catch(() => {});
   await fs.remove(path.join(DATA_DIR, "backups", serverId)).catch(() => {});
-  await fs.remove(vmConsoleSock(serverId)).catch(() => {});
-  await fs.remove(vmPidFile(serverId)).catch(() => {});
 };
 
 /** Command used by the CLI installer / agent to discover live processes. */

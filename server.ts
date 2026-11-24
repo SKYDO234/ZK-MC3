@@ -85,20 +85,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Raw keystrokes for a VM's guest tty. The Minecraft path sends whole lines
-  // and lets the JVM parse them; a serial console has no line protocol, so
-  // control characters, arrow keys and Tab must reach the guest intact.
-  socket.on("server:keys", async ({ serverId, data }: any) => {
-    if (!(await canAccess(user, serverId))) return;
-    try {
-      const { vmConsoleInput } = await import("./src/server/services/runtime");
-      const ok = await vmConsoleInput(serverId, String(data || ""));
-      if (!ok) socket.emit("server:error", { message: "The guest console is not attached yet." });
-    } catch (err: any) {
-      socket.emit("server:error", { message: err.message });
-    }
-  });
-
   socket.on("stats:subscribe", () => socket.join("stats"));
 });
 
@@ -204,15 +190,6 @@ app.get("/downloads/zkdaemon.zip", (req, res) => {
   res.download(file, "zkdaemon.zip");
 });
 
-// The VM host setup script, served so an operator never has to clone the repo
-// just to install QEMU.
-app.get("/downloads/vm-setup.sh", (_req, res) => {
-  const file = path.join(process.cwd(), "scripts", "vm-setup.sh");
-  if (!fs.existsSync(file)) return res.status(404).type("text/plain").send("vm-setup.sh is missing from this build.");
-  res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
-  res.sendFile(file);
-});
-
 app.get("/api/daemon/version", (_req, res) => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "daemon", "package.json"), "utf8"));
@@ -295,6 +272,12 @@ async function attachFrontend() {
     // a .zip/.tar.gz name, which leaves the operator with a corrupt archive.
     app.get("/downloads/*", (_req, res) => {
       res.status(404).type("text/plain").send("That download does not exist on this panel.");
+    });
+    // Unknown /api paths must not fall through to the SPA either: a client
+    // asking a removed endpoint would get a 200 with an HTML page and try to
+    // parse it as JSON.
+    app.all("/api/*", (_req, res) => {
+      res.status(404).json({ error: "No such API endpoint" });
     });
     app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
   }

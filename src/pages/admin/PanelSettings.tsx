@@ -23,10 +23,6 @@ import {
   Puzzle,
   ExternalLink,
   Info,
-  MonitorPlay,
-  Cpu,
-  DownloadCloud,
-  Loader2,
 } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import { Card, CardHeader, Button, Field, Tabs, Switch, Badge, PageSkeleton, Modal } from "../../components/ui";
@@ -60,23 +56,10 @@ export const PanelSettings: React.FC = () => {
     requestedTab && TABS.some((t) => t.id === requestedTab) ? requestedTab : "branding"
   );
   const [form, setForm] = useState<any>({});
-  // Host VM capability is fetched separately from panel settings: it describes
-  // this machine, not a saved preference.
-  const [vmHost, setVmHost] = useState<{
-    ready: boolean;
-    blocker: string | null;
-    kvm: boolean;
-    kvmReason: string;
-  } | null>(null);
   const [saving, setSaving] = useState(false);
   // Local, so clearing the field shows why the save was refused instead of
   // silently doing nothing.
   const [nameError, setNameError] = useState("");
-  useEffect(() => {
-    api<{ ready: boolean; blocker: string | null; kvm: boolean; kvmReason: string }>("/system/vm/host")
-      .then((data) => setVmHost(data))
-      .catch(() => setVmHost(null));
-  }, []);
   // The persisted value, so the Features tab can distinguish saved from unsaved.
   const [savedPlayit, setSavedPlayit] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -188,16 +171,16 @@ export const PanelSettings: React.FC = () => {
                     />
                   </Field>
                   <Field label="Tagline">
-                    <input className="zk-input" value={form.panelTagline} onChange={(e) => set("panelTagline", e.target.value)} />
+                    <input className="zk-input" value={form.panelTagline ?? ""} onChange={(e) => set("panelTagline", e.target.value)} />
                   </Field>
                   <Field label="Company / studio">
-                    <input className="zk-input" value={form.companyName} onChange={(e) => set("companyName", e.target.value)} />
+                    <input className="zk-input" value={form.companyName ?? ""} onChange={(e) => set("companyName", e.target.value)} />
                   </Field>
                   <Field label="CEO">
-                    <input className="zk-input" value={form.ceoName} onChange={(e) => set("ceoName", e.target.value)} />
+                    <input className="zk-input" value={form.ceoName ?? ""} onChange={(e) => set("ceoName", e.target.value)} />
                   </Field>
                   <Field label="Website" className="sm:col-span-2">
-                    <input className="zk-input" value={form.companyUrl} onChange={(e) => set("companyUrl", e.target.value)} />
+                    <input className="zk-input" value={form.companyUrl ?? ""} onChange={(e) => set("companyUrl", e.target.value)} />
                   </Field>
                 </div>
                 <div className="mt-4 flex items-center gap-3 border-t border-white/[0.06] pt-4">
@@ -224,10 +207,10 @@ export const PanelSettings: React.FC = () => {
                       <input
                         type="color"
                         className="h-[38px] w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
-                        value={form.primaryColor}
+                        value={form.primaryColor || "#ff7a18"}
                         onChange={(e) => set("primaryColor", e.target.value)}
                       />
-                      <input className="zk-input font-mono" value={form.primaryColor} onChange={(e) => set("primaryColor", e.target.value)} />
+                      <input className="zk-input font-mono" value={form.primaryColor || "#ff7a18"} onChange={(e) => set("primaryColor", e.target.value)} />
                     </div>
                   </Field>
                   <Field label="Secondary accent">
@@ -235,10 +218,10 @@ export const PanelSettings: React.FC = () => {
                       <input
                         type="color"
                         className="h-[38px] w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
-                        value={form.accentColor}
+                        value={form.accentColor || "#ffb020"}
                         onChange={(e) => set("accentColor", e.target.value)}
                       />
-                      <input className="zk-input font-mono" value={form.accentColor} onChange={(e) => set("accentColor", e.target.value)} />
+                      <input className="zk-input font-mono" value={form.accentColor || "#ffb020"} onChange={(e) => set("accentColor", e.target.value)} />
                     </div>
                   </Field>
                 </div>
@@ -356,7 +339,7 @@ export const PanelSettings: React.FC = () => {
                     min={4}
                     max={32}
                     className="zk-input"
-                    value={form.passwordMinLength}
+                    value={form.passwordMinLength ?? ""}
                     onChange={(e) => set("passwordMinLength", Number(e.target.value))}
                   />
                 </Field>
@@ -366,7 +349,7 @@ export const PanelSettings: React.FC = () => {
                     min={1}
                     max={720}
                     className="zk-input"
-                    value={form.sessionTimeoutHours}
+                    value={form.sessionTimeoutHours ?? ""}
                     onChange={(e) => set("sessionTimeoutHours", Number(e.target.value))}
                   />
                 </Field>
@@ -396,10 +379,10 @@ export const PanelSettings: React.FC = () => {
               <CardHeader title="SMTP configuration" subtitle="Transactional email for notifications and recovery" icon={<Mail size={16} />} />
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <Field label="SMTP host" className="sm:col-span-2">
-                  <input className="zk-input" value={form.smtpHost} onChange={(e) => set("smtpHost", e.target.value)} placeholder="smtp.mailgun.org" />
+                  <input className="zk-input" value={form.smtpHost ?? ""} onChange={(e) => set("smtpHost", e.target.value)} placeholder="smtp.mailgun.org" />
                 </Field>
                 <Field label="Port">
-                  <input type="number" className="zk-input" value={form.smtpPort} onChange={(e) => set("smtpPort", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.smtpPort ?? ""} onChange={(e) => set("smtpPort", Number(e.target.value))} />
                 </Field>
                 <Field label="Encryption">
                   <select className="zk-select" value={form.smtpSecure ? "ssl" : "tls"} onChange={(e) => set("smtpSecure", e.target.value === "ssl")}>
@@ -408,13 +391,13 @@ export const PanelSettings: React.FC = () => {
                   </select>
                 </Field>
                 <Field label="Username">
-                  <input className="zk-input" value={form.smtpUser} onChange={(e) => set("smtpUser", e.target.value)} autoComplete="off" />
+                  <input className="zk-input" value={form.smtpUser ?? ""} onChange={(e) => set("smtpUser", e.target.value)} autoComplete="off" />
                 </Field>
                 <Field label="Password">
-                  <input className="zk-input" type="password" value={form.smtpPass} onChange={(e) => set("smtpPass", e.target.value)} autoComplete="new-password" />
+                  <input className="zk-input" type="password" value={form.smtpPass ?? ""} onChange={(e) => set("smtpPass", e.target.value)} autoComplete="new-password" />
                 </Field>
                 <Field label="From address" className="sm:col-span-2">
-                  <input className="zk-input" value={form.smtpFrom} onChange={(e) => set("smtpFrom", e.target.value)} />
+                  <input className="zk-input" value={form.smtpFrom ?? ""} onChange={(e) => set("smtpFrom", e.target.value)} />
                 </Field>
               </div>
               <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
@@ -456,13 +439,13 @@ export const PanelSettings: React.FC = () => {
                   <Switch checked={form.apiEnabled} onChange={(v) => set("apiEnabled", v)} />
                 </div>
                 <Field label="Rate limit (requests / minute / key)">
-                  <input type="number" className="zk-input" value={form.apiRateLimit} onChange={(e) => set("apiRateLimit", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.apiRateLimit ?? ""} onChange={(e) => set("apiRateLimit", Number(e.target.value))} />
                 </Field>
                 <Field label="Maximum keys per user">
-                  <input type="number" className="zk-input" value={form.apiKeyMaxPerUser} onChange={(e) => set("apiKeyMaxPerUser", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.apiKeyMaxPerUser ?? ""} onChange={(e) => set("apiKeyMaxPerUser", Number(e.target.value))} />
                 </Field>
                 <Field label="Default key expiry (days, 0 = never)">
-                  <input type="number" className="zk-input" value={form.apiKeyDefaultExpiryDays} onChange={(e) => set("apiKeyDefaultExpiryDays", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.apiKeyDefaultExpiryDays ?? ""} onChange={(e) => set("apiKeyDefaultExpiryDays", Number(e.target.value))} />
                 </Field>
               </div>
             </Card>
@@ -625,71 +608,6 @@ GET    /api/admin/dashboard      Admin metrics`}
                 playit.gg <ExternalLink size={10} />
               </a>
             </Card>
-
-            <Card>
-              <CardHeader
-                title="Virtual machines"
-                subtitle="Real QEMU guests, controlled from the server console"
-                icon={<MonitorPlay size={16} />}
-              />
-              <div className="mt-5 space-y-3">
-                {vmHost ? (
-                  <div
-                    className={`flex items-start gap-2 rounded-xl border px-4 py-3 ${
-                      vmHost.ready
-                        ? "border-emerald-500/25 bg-emerald-500/[0.06]"
-                        : "border-amber-500/25 bg-amber-500/[0.06]"
-                    }`}
-                  >
-                    <Cpu size={13} className={`mt-0.5 flex-none ${vmHost.ready ? "text-emerald-400" : "text-amber-400"}`} />
-                    <div className="text-[0.7rem] leading-relaxed">
-                      <p className={`font-medium ${vmHost.ready ? "text-emerald-200" : "text-amber-200"}`}>
-                        {vmHost.ready ? "This node can run virtual machines" : "QEMU is not installed"}
-                      </p>
-                      <p className={vmHost.ready ? "text-emerald-100/60" : "text-amber-100/60"}>
-                        {vmHost.ready
-                          ? vmHost.kvm
-                            ? "KVM available — guests run at near-native speed."
-                            : `Software emulation (${vmHost.kvmReason}). About 3 minutes to a login prompt.`
-                          : vmHost.blocker}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3">
-                    <Loader2 size={12} className="zk-spin text-zinc-500" />
-                    <p className="text-[0.7rem] text-zinc-500">Checking host capabilities…</p>
-                  </div>
-                )}
-
-                <div className="rounded-xl border border-white/[0.07] bg-black/25 px-4 py-3">
-                  <p className="mb-2 text-[0.64rem] font-semibold uppercase tracking-[0.12em] text-zinc-600">
-                    Install on this host
-                  </p>
-                  <pre className="overflow-x-auto rounded-lg bg-black/50 px-3 py-2 font-mono text-[0.64rem] leading-relaxed text-zinc-400">
-{`curl -fsSLO ${window.location.origin}/downloads/vm-setup.sh
-sudo bash vm-setup.sh`}
-                  </pre>
-                  <a
-                    href="/downloads/vm-setup.sh"
-                    download
-                    className="mt-2.5 inline-flex items-center gap-1.5 text-[0.66rem] text-brand-400 hover:text-brand-300"
-                  >
-                    <DownloadCloud size={11} /> Download vm-setup.sh
-                  </a>
-                </div>
-
-                <div className="flex items-start gap-1.5 rounded-xl border border-white/[0.07] bg-black/25 px-3 py-2.5">
-                  <Info size={11} className="mt-0.5 flex-none text-zinc-500" />
-                  <p className="text-[0.66rem] leading-relaxed text-zinc-500">
-                    Images come from Canonical and Debian directly and are cached in{" "}
-                    <span className="font-mono text-zinc-400">/var/lib/vm-images</span>. Without{" "}
-                    <span className="font-mono text-zinc-400">NET_ADMIN</span> there is no bridging — guests reach the
-                    network outbound and accept inbound only on forwarded ports bound to 127.0.0.1.
-                  </p>
-                </div>
-              </div>
-            </Card>
           </div>
         )}
 
@@ -699,16 +617,16 @@ sudo bash vm-setup.sh`}
               <CardHeader title="Per-user limits" subtitle="Enforced when servers are created" icon={<SlidersHorizontal size={16} />} />
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <Field label="Max servers per user">
-                  <input type="number" className="zk-input" value={form.maxServersPerUser} onChange={(e) => set("maxServersPerUser", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.maxServersPerUser ?? ""} onChange={(e) => set("maxServersPerUser", Number(e.target.value))} />
                 </Field>
                 <Field label="Max RAM per server (MB)">
-                  <input type="number" className="zk-input" value={form.maxRamPerServer} onChange={(e) => set("maxRamPerServer", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.maxRamPerServer ?? ""} onChange={(e) => set("maxRamPerServer", Number(e.target.value))} />
                 </Field>
                 <Field label="Max CPU cores per server">
-                  <input type="number" className="zk-input" value={form.maxCpuPerServer} onChange={(e) => set("maxCpuPerServer", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.maxCpuPerServer ?? ""} onChange={(e) => set("maxCpuPerServer", Number(e.target.value))} />
                 </Field>
                 <Field label="Max disk per server (MB)">
-                  <input type="number" className="zk-input" value={form.maxDiskPerServer} onChange={(e) => set("maxDiskPerServer", Number(e.target.value))} />
+                  <input type="number" className="zk-input" value={form.maxDiskPerServer ?? ""} onChange={(e) => set("maxDiskPerServer", Number(e.target.value))} />
                 </Field>
               </div>
               <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
@@ -724,20 +642,20 @@ sudo bash vm-setup.sh`}
               <CardHeader title="Defaults" subtitle="Applied to newly created instances" icon={<Server size={16} />} />
               <div className="mt-5 space-y-4">
                 <Field label="Default runtime">
-                  <select className="zk-select" value={form.defaultRuntime} onChange={(e) => set("defaultRuntime", e.target.value)}>
+                  <select className="zk-select" value={form.defaultRuntime ?? ""} onChange={(e) => set("defaultRuntime", e.target.value)}>
                     <option value="local">Local process (this machine)</option>
                     <option value="daemon">Remote node (zkdaemon)</option>
                   </select>
                 </Field>
                 <Field label="Default software">
-                  <select className="zk-select" value={form.defaultSoftware} onChange={(e) => set("defaultSoftware", e.target.value)}>
+                  <select className="zk-select" value={form.defaultSoftware ?? ""} onChange={(e) => set("defaultSoftware", e.target.value)}>
                     {["PAPER", "PURPUR", "VANILLA", "FABRIC", "VELOCITY", "NODEJS", "PYTHON"].map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
                 </Field>
                 <Field label="Default version">
-                  <input className="zk-input font-mono" value={form.defaultVersion} onChange={(e) => set("defaultVersion", e.target.value)} />
+                  <input className="zk-input font-mono" value={form.defaultVersion ?? ""} onChange={(e) => set("defaultVersion", e.target.value)} />
                 </Field>
                 <div className="rounded-xl border border-white/[0.07] bg-black/25 p-3">
                   <p className="text-[0.66rem] uppercase tracking-wider text-zinc-600">Effective footprint</p>
@@ -768,7 +686,7 @@ sudo bash vm-setup.sh`}
                   <Switch checked={form.billingEnabled} onChange={(v) => set("billingEnabled", v)} />
                 </div>
                 <Field label="Currency">
-                  <select className="zk-select" value={form.currency} onChange={(e) => set("currency", e.target.value)}>
+                  <select className="zk-select" value={form.currency ?? ""} onChange={(e) => set("currency", e.target.value)}>
                     {["USD", "EUR", "GBP", "INR", "BDT", "SGD", "AUD"].map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
@@ -776,13 +694,13 @@ sudo bash vm-setup.sh`}
                 </Field>
                 <div className="grid grid-cols-3 gap-3">
                   <Field label="Per GB RAM">
-                    <input type="number" step="0.1" className="zk-input" value={form.pricePerGbRam} onChange={(e) => set("pricePerGbRam", Number(e.target.value))} />
+                    <input type="number" step="0.1" className="zk-input" value={form.pricePerGbRam ?? ""} onChange={(e) => set("pricePerGbRam", Number(e.target.value))} />
                   </Field>
                   <Field label="Per CPU core">
-                    <input type="number" step="0.1" className="zk-input" value={form.pricePerCpuCore} onChange={(e) => set("pricePerCpuCore", Number(e.target.value))} />
+                    <input type="number" step="0.1" className="zk-input" value={form.pricePerCpuCore ?? ""} onChange={(e) => set("pricePerCpuCore", Number(e.target.value))} />
                   </Field>
                   <Field label="Per GB disk">
-                    <input type="number" step="0.1" className="zk-input" value={form.pricePerGbDisk} onChange={(e) => set("pricePerGbDisk", Number(e.target.value))} />
+                    <input type="number" step="0.1" className="zk-input" value={form.pricePerGbDisk ?? ""} onChange={(e) => set("pricePerGbDisk", Number(e.target.value))} />
                   </Field>
                 </div>
               </div>
@@ -827,7 +745,7 @@ sudo bash vm-setup.sh`}
                 <Field label="Maintenance message">
                   <textarea
                     className="zk-textarea min-h-[90px]"
-                    value={form.maintenanceMessage}
+                    value={form.maintenanceMessage ?? ""}
                     onChange={(e) => set("maintenanceMessage", e.target.value)}
                   />
                 </Field>

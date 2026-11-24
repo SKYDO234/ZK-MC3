@@ -6,7 +6,6 @@ import { notificationsFor, markRead } from "../services/notifications";
 import { activityForUser, listActivity } from "../services/activity";
 import { softwareHealth } from "../services/health";
 import { getVersions, SOFTWARE_TYPES, upstreamStatus, clearVersionCache } from "../services/software";
-import { hostCapabilities, VM_IMAGES } from "../services/qemu";
 
 const router = Router();
 
@@ -21,23 +20,6 @@ router.get("/stats", requireAuth, async (_req, res) => {
 
 router.get("/software", requireAuth, async (_req, res) => {
   res.json(SOFTWARE_TYPES);
-});
-
-/**
- * Host readiness for QEMU. The create form asks before offering VM types: a
- * node without qemu-system installed should say so up front, not fail after the
- * operator has picked an image and clicked create.
- */
-router.get("/vm/host", requireAuth, async (_req, res) => {
-  const caps = await hostCapabilities(true);
-  res.json({
-    ready: !caps.blocker,
-    blocker: caps.blocker,
-    kvm: caps.kvm,
-    kvmReason: caps.kvmReason,
-    qemu: caps.qemu,
-    images: VM_IMAGES.map((i) => ({ id: i.id, label: i.label, version: i.version, ram: i.ram, cpu: i.cpu, disk: i.disk })),
-  });
 });
 
 router.get("/versions", requireAuth, async (req, res) => {

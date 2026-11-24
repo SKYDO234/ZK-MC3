@@ -1,5 +1,4 @@
 import axios from "axios";
-import { isVmSoftware } from "./qemu";
 import fs from "fs-extra";
 import path from "path";
 
@@ -105,7 +104,7 @@ const upstreamGet = async (url: string, timeout = 7000) => {
   }
 };
 
-export type SoftwareCategory = "SERVER" | "MODDED" | "PROXY" | "RUNTIME" | "VM";
+export type SoftwareCategory = "SERVER" | "MODDED" | "PROXY" | "RUNTIME";
 
 export interface SoftwareDefinition {
   id: string;
@@ -229,48 +228,6 @@ export const SOFTWARE_TYPES: SoftwareDefinition[] = [
     label: "Python App",
     category: "RUNTIME",
     description: "Run any Python 3 application or bot on a port.",
-    java: "",
-  },
-  // ---------------------------------------------------------------------
-  // Virtual machines
-  // ---------------------------------------------------------------------
-  // These are real QEMU guests, not application runtimes: each gets its own
-  // kernel, disk image and cloud-init login. The ids are intentionally the same
-  // strings the VM engine matches on, so `isVmSoftware()` is the single source
-  // of truth for "this is a machine, not a server process".
-  {
-    id: "UBUNTU2204",
-    label: "Ubuntu 22.04 LTS",
-    category: "VM",
-    description: "Full Ubuntu guest under QEMU. Jammy Jellyfish, 2 GB RAM / 20 GB disk.",
-    java: "",
-  },
-  {
-    id: "UBUNTU2404",
-    label: "Ubuntu 24.04 LTS",
-    category: "VM",
-    description: "Full Ubuntu guest under QEMU. Noble Numbat, 2 GB RAM / 20 GB disk.",
-    java: "",
-  },
-  {
-    id: "UBUNTU2604",
-    label: "Ubuntu 26.04 LTS",
-    category: "VM",
-    description: "Full Ubuntu guest under QEMU. Resolute Raccoon, 2 GB RAM / 20 GB disk.",
-    java: "",
-  },
-  {
-    id: "DEBIAN12",
-    label: "Debian 12",
-    category: "VM",
-    description: "Full Debian guest under QEMU. Bookworm, no snap, 2 GB RAM / 20 GB disk.",
-    java: "",
-  },
-  {
-    id: "DEBIAN13",
-    label: "Debian 13",
-    category: "VM",
-    description: "Full Debian guest under QEMU. Trixie, 2 GB RAM / 20 GB disk.",
     java: "",
   },
 ];
@@ -467,9 +424,6 @@ export const getVersions = async (software: string): Promise<string[]> => {
   try {
     if (key === "NODEJS") versions = ["22", "20", "18"];
     else if (key === "PYTHON") versions = ["3.12", "3.11", "3.10"];
-    // A VM's "version" is its image; it is fixed per catalogue entry, so there
-    // is exactly one and no upstream lookup is needed (or possible offline).
-    else if (isVmSoftware(key)) versions = ["latest"];
     else if (key === "PAPER") versions = await fetchPaperProjectVersions("paper");
     else if (key === "VELOCITY") versions = await fetchVelocityVersions();
     else if (key === "BUNGEECORD" || key === "WATERFALL") versions = ["latest"];
