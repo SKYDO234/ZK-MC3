@@ -270,7 +270,12 @@ export const PanelSettings: React.FC = () => {
                   </Button>
                 </div>
                 <Field label="Or paste an image URL" className="mt-4">
-                  <input className="zk-input" value={form.logoUrl} onChange={(e) => set("logoUrl", e.target.value)} />
+                  <input
+                    className="zk-input"
+                    value={form.logoUrl || ""}
+                    onChange={(e) => set("logoUrl", e.target.value)}
+                    placeholder="/uploads/my-logo.png"
+                  />
                 </Field>
                 <Button
                   size="sm"

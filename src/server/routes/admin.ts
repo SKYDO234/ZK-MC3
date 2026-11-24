@@ -129,7 +129,11 @@ router.delete("/settings/wallpaper", requireAdmin, async (_req, res) => {
   res.json({ success: true });
 });
 
-router.post("/settings/logo", requireAdmin, upload.single("logo"), async (req: any, res) => {
+// The client's uploadFile() posts the file under the field name "file", which is
+// also what the wallpaper and file-manager routes accept. This endpoint alone
+// asked for "logo", so multer raised MulterError: Unexpected field, the error
+// escaped as a bare 500, and Replace logo had never worked.
+router.post("/settings/logo", requireAdmin, upload.single("file"), async (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
   const ext = path.extname(req.file.originalname || ".png").toLowerCase() || ".png";
   if (![".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"].includes(ext))

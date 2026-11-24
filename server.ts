@@ -149,6 +149,35 @@ app.use("/api/api-keys", apiKeyRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/system", systemRoutes);
 
+// ---------------------------------------------------------------------------
+// Error handler
+// ---------------------------------------------------------------------------
+// Without this, any thrown error — including a multer field mismatch — escaped
+// as Express's default HTML "Internal Server Error" page, so the UI could only
+// report "Request failed (500)". A JSON body with a real message is what makes a
+// failure diagnosable from the toast.
+app.use((err: any, req: any, res: any, _next: any) => {
+  if (res.headersSent) return;
+  const isMulter = err?.name === "MulterError";
+  const status = isMulter ? 400 : Number(err?.status || err?.statusCode) || 500;
+
+  let message = err?.message || "Something went wrong";
+  if (isMulter) {
+    message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "That image is too large. The limit is 200 MB."
+        : err.field
+          ? `Unexpected upload field "${err.field}".`
+          : `Upload rejected (${err.code}).`;
+  }
+
+  if (req?.path?.startsWith("/api") || req?.originalUrl?.startsWith("/api")) {
+    res.status(status).json({ error: message });
+    return;
+  }
+  res.status(status).type("text/plain").send(message);
+});
+
 // Settings drive the entire visual identity of the panel, so a stale copy is not
 // a performance win — it is the bug where a saved theme or panel name appears to
 // be ignored. Express would otherwise emit an ETag and answer a browser's
